@@ -23,7 +23,7 @@
             <th class="py-3 px-4">Display Name</th>
             <th class="py-3 px-4">State</th>
             <th class="py-3 px-4">Start Mode</th>
-            <th class="py-3 px-4">Details</th>
+            <th class="py-3 px-4">Actions</th>
           </tr>
         </thead>
         <tbody class="text-gray-600">
@@ -35,15 +35,19 @@
               <td class="py-3 px-4">{{ service.startMode }}</td>
               <td class="py-3 px-4">
                 <span @click="service.isExpanded = !service.isExpanded" class="text-blue-500 underline cursor-pointer">
-                  {{ service.isExpanded ? 'Hide' : 'Show' }}
+                  {{ service.isExpanded ? 'Hide' : 'Info' }}
                 </span>
                 <button v-if="service.info.error" @click="reloadInfo(service)"
                   class="ml-2 text-red-500 underline cursor-pointer" :disabled="service.isReloading">
-                  {{ service.isReloading ? 'Reloading...' : 'Reload Info' }}
+                  {{ service.isReloading ? 'Reloading...' : 'Reload' }}
+                </button>
+                <button v-if="service.startMode !== 'Disabled'" @click="disable(service)"
+                  class="ml-2 text-gray-700 underline cursor-pointer" :disabled="service.isDisabling">
+                  {{ service.isDisabling ? 'Disabling...' : 'Disable' }}
                 </button>
               </td>
             </tr>
-            <tr :class="{ 'hidden': !service.isExpanded }" class="details border-b">
+            <tr :class="{ 'hidden': !service.isExpanded }" class="border-b">
               <td colspan="5" class="py-3 px-4 bg-gray-50">
                 <div v-if="!service.info?.error">
                   <p><strong>URL:</strong> <a :href="service.info.url" target="_blank" class="underline">Open</a></p>
@@ -66,7 +70,7 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { loadServices, reloadServiceInfo } from './services/api.js'
+import { loadServices, reloadServiceInfo, disableService } from './services/api.js'
 
 const allServices = ref({})
 const filteredServices = ref([])
@@ -75,11 +79,11 @@ const error = ref(false)
 
 onMounted(async () => {
   loadServices()
-    .then(data => {
+    .then((data) => {
       allServices.value = data
       filterServices()
     })
-    .catch(err => {
+    .catch(() => {
       error.value = true
     })
 })
@@ -88,19 +92,32 @@ const reloadInfo = async (service) => {
   service.isReloading = true
 
   reloadServiceInfo(service.name)
-    .then(data => {
+    .then((data) => {
       service.info = data
     })
-
-  service.isReloading = false
+    .finally(() => {
+      service.isReloading = false
+    })
 }
+
+const disable = async (service) => {
+  service.isDisabling = true
+
+  disableService(service.name)
+    .then((data) => {
+      Object.assign(service, data)
+    })
+    .finally(() => {
+      service.isDisabling = false
+    })
+};
 
 const filterServices = () => {
   if (selectedStartMode.value === 'all') {
     filteredServices.value = [...allServices.value]
   } else {
     filteredServices.value = allServices.value.filter(
-      service => service.startMode === selectedStartMode.value
+      (service) => service.startMode === selectedStartMode.value
     )
   }
 }

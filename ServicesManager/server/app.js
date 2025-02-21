@@ -19,17 +19,25 @@ express()
 
     res.json(additionalInfo)
   })
+  .get('/services/:serviceName/disable', async (req, res) => {
+    const serviceName = req.params.serviceName
+
+    const service = await disableService(serviceName)
+
+    res.json(service)
+  })
   .listen(3000)
 
 fetchRawServices()
-  .then(data => {
-    data.forEach(item => {
+  .then((data) => {
+    data.forEach((item) => {
+      let name = item.Name.split('_')[0]
       services.push({
-        name: item.Name,
+        name: name,
         displayName: item.DisplayName || 'Unknown',
         state: item.State,
         startMode: item.StartMode,
-        info: servicesInfo[item.Name] || {
+        info: servicesInfo[name] || {
           error: true,
           message: 'Not loaded'
         }
@@ -47,8 +55,25 @@ async function fetchRawServices() {
   })
 }
 
+async function disableService(serviceName) {
+  return new Promise((resolve) => {
+    const command = `powershell -Command "Stop-Service -Name '${serviceName}' -Force; Set-Service -Name '${serviceName}' -StartupType Disabled; Get-CimInstance -ClassName Win32_Service -Filter \\"Name='${serviceName}'\\" | Select-Object Name,DisplayName,State,StartMode | ConvertTo-Json"`;
+    exec(command, (err, stdout) => {
+      const updatedService = JSON.parse(stdout)
+      const index = services.findIndex((service) => service.name === serviceName)
+
+      Object.assign(services[index], {
+        state: updatedService.State,
+        startMode: updatedService.StartMode
+      })
+
+      resolve(services[index])
+    })
+  })
+}
+
 async function updateServiceInJson(serviceName, additionalInfo) {
-  const index = services.findIndex(service => service.name == serviceName)
+  const index = services.findIndex((service) => service.name == serviceName)
   services[index].info = additionalInfo
 
   servicesInfo[serviceName] = additionalInfo
@@ -73,15 +98,19 @@ async function fetchServiceInfo(serviceName) {
   try {
     const searchResponse = await fetchWithRetry(searchUrl)
     const $search = cheerio.load(await searchResponse.text())
-    const firstLink = $search('.fusion-post-grid .fusion-post-title a').attr('href')
 
-    if (!firstLink || !firstLink.includes('/twikinarium/services/')) {
+    const targetPost = $search('.fusion-post-grid').filter((i, element) => {
+      return $search(element).text().includes('Имя службы: ' + serviceName)
+    }).first()
+
+    const targetLink = targetPost.find('.fusion-post-title a').attr('href')
+
+    if (!targetLink || !targetLink.includes('/twikinarium/services/')) {
       additionalInfo.message = 'Not found'
-
       return await updateServiceInJson(serviceName, additionalInfo)
     }
 
-    const itemResponse = await fetchWithRetry(firstLink)
+    const itemResponse = await fetchWithRetry(targetLink)
     const $detail = cheerio.load(await itemResponse.text())
 
     const description = $detail('p:contains("Описание по умолчанию")').next('p').text().trim()
@@ -89,13 +118,13 @@ async function fetchServiceInfo(serviceName) {
     const recommendation = $detail('p:contains("Рекомендации")').nextAll().text().trim()
 
     additionalInfo = {
-      url: firstLink,
+      url: targetLink,
       description: description || 'Not found',
       explained: explained || 'Not found',
       recommendation: recommendation || 'Not found'
     }
   } catch (error) {
-    console.error(error);
+    console.error(error)
   }
 
   return await updateServiceInJson(serviceName, additionalInfo)
@@ -106,7 +135,7 @@ async function fetchWithRetry(url, retries = 3) {
     return await fetch(url)
   } catch (error) {
     if (retries > 0) {
-      await new Promise(resolve => setTimeout(resolve, 500));
+      await new Promise((resolve) => setTimeout(resolve, 500))
       return await fetchWithRetry(url, retries - 1)
     }
     throw error

@@ -17,4 +17,17 @@ async function reloadServiceInfo(serviceName) {
   }
 }
 
-export { loadServices, reloadServiceInfo }
+async function disableService(serviceName) {
+  try {
+    const response = await fetch(`http://localhost:3000/services/${serviceName}/disable`)
+
+    return await response.json()
+  } catch (error) {
+    return {
+      error: true,
+      message: 'Disabling failed'
+    }
+  }
+}
+
+export { loadServices, reloadServiceInfo, disableService }
