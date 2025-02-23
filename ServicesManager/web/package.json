@@ -10,7 +10,7 @@
   },
   "scripts": {
     "build": "vite build",
-    "dev": "vite"
+    "dev": "vite --open"
   },
   "type": "module"
 }

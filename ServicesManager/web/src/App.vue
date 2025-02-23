@@ -70,7 +70,7 @@
                   :disabled="service.isDisabling" class="text-red-500" @clicked="disable(service)" />
               </td>
             </tr>
-            <tr v-show="service.isExpanded" class="border-b">
+            <tr v-show="service.isExpanded" class="border-b border-gray-200">
               <td colspan="5" class="p-3 bg-gray-50">
                 <Button :text="service.isReloading ? 'Reloading...' : 'Reload'" :disabled="service.isDisabling"
                   class="mb-3 text-orange-500" @clicked="reloadInfo(service)" />

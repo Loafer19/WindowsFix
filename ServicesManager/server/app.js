@@ -22,6 +22,8 @@ express()
   .get('/services/:serviceName/disable', async (req, res) => {
     const serviceName = req.params.serviceName
 
+    await fs.promises.writeFile('logs/services-disabling.log', serviceName + '\n', { flag: 'a' })
+
     const service = await disableService(serviceName)
 
     res.json(service)
@@ -59,8 +61,13 @@ async function disableService(serviceName) {
   return new Promise((resolve) => {
     const command = `powershell -Command "Stop-Service -Name '${serviceName}' -Force; Set-Service -Name '${serviceName}' -StartupType Disabled; Get-CimInstance -ClassName Win32_Service -Filter \\"Name='${serviceName}'\\" | Select-Object Name,DisplayName,State,StartMode | ConvertTo-Json"`;
     exec(command, (err, stdout) => {
-      const updatedService = JSON.parse(stdout)
+      const updatedService = JSON.parse(stdout || '{"error":"Something went wrong while shutting down the service :("}')
       const index = services.findIndex((service) => service.name === serviceName)
+
+      if (updatedService.error) {
+        services[index].info.error = true
+        services[index].info.message = updatedService.error
+      }
 
       Object.assign(services[index], {
         state: updatedService.State,
@@ -78,7 +85,7 @@ async function updateServiceInJson(serviceName, additionalInfo) {
 
   servicesInfo[serviceName] = additionalInfo
 
-  // await fs.promises.writeFile('public/services-info.json', JSON.stringify(servicesInfo, 0, 2))
+  await fs.promises.writeFile('public/services-info.json', JSON.stringify(servicesInfo, 0, 2))
 
   return additionalInfo
 }

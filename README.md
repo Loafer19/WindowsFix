@@ -16,13 +16,18 @@ to start exploiting
 - in `web` directory
   - run `bun i`
   - then `bun run dev`
-  - open in browser
 
-![web](./.github/screenshots/web.jpg)
+![web](./.github/screenshots/services-manager.jpg)
 
-## Bat Files
+## Scripts
 
 They can:
 
 - explorer
+  - set grouping to none
+  - unpin useless folders
   - unpin network tab
+
+```bash
+Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
+```
