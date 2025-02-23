@@ -18,6 +18,8 @@ to start exploiting
   - then `bun run dev`
   - open in browser
 
+![web](./.github/screenshots/web.jpg)
+
 ## Bat Files
 
 They can:

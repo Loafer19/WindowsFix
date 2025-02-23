@@ -78,15 +78,15 @@ async function updateServiceInJson(serviceName, additionalInfo) {
 
   servicesInfo[serviceName] = additionalInfo
 
-  await fs.promises.writeFile('public/services-info.json', JSON.stringify(servicesInfo, 0, 2))
+  // await fs.promises.writeFile('public/services-info.json', JSON.stringify(servicesInfo, 0, 2))
 
   return additionalInfo
 }
 
 async function fetchServiceInfo(serviceName) {
-  if (servicesInfo[serviceName] && !servicesInfo[serviceName].error) {
-    return servicesInfo[serviceName]
-  }
+  // if (servicesInfo[serviceName] && !servicesInfo[serviceName].error) {
+  //   return servicesInfo[serviceName]
+  // }
 
   let additionalInfo = {
     error: true,
@@ -115,7 +115,11 @@ async function fetchServiceInfo(serviceName) {
 
     const description = $detail('p:contains("Описание по умолчанию")').next('p').text().trim()
     const explained = $detail('p:contains("Нормальное описание")').next('p').text().trim()
-    const recommendation = $detail('p:contains("Рекомендации")').nextAll().text().trim()
+    const recommendation = $detail('p:contains("Рекомендации")')
+      .nextAll()
+      .text()
+      .trim()
+      .replace('Учитывая следующее:\n', '')
 
     additionalInfo = {
       url: targetLink,
