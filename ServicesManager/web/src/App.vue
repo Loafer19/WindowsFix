@@ -6,147 +6,30 @@
         <p class="text-base-content/70">Manage and monitor Windows services with detailed information</p>
       </header>
 
-      <!-- Filters Section -->
-      <div class="card bg-base-100 shadow-lg mb-4">
-        <div class="card-body">
-          <h3 class="card-title text-base-content">Filters</h3>
-          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div class="form-control">
-              <label for="searchFilter" class="label">
-                <span class="label-text">Search</span>
-              </label>
-              <input id="searchFilter" v-model="searchQuery" @input="filterServices"
-                class="input input-bordered"
-                placeholder="Name or Display Name" />
-            </div>
-
-            <div class="form-control">
-              <label for="stateFilter" class="label">
-                <span class="label-text">State</span>
-              </label>
-              <select id="stateFilter" v-model="selectedState" @change="filterServices"
-                class="select select-bordered">
-                <option value="">All States</option>
-                <option value="Running">Running</option>
-                <option value="Stopped">Stopped</option>
-                <option value="Paused">Paused</option>
-                <option value="Pending">Pending</option>
-              </select>
-            </div>
-
-            <div class="form-control">
-              <label for="startModeFilter" class="label">
-                <span class="label-text">Start Mode</span>
-              </label>
-              <select id="startModeFilter" v-model="selectedStartMode" @change="filterServices"
-                class="select select-bordered">
-                <option value="">All Modes</option>
-                <option value="Auto">Auto</option>
-                <option value="Manual">Manual</option>
-                <option value="Disabled">Disabled</option>
-                <option value="System">System</option>
-                <option value="Boot">Boot</option>
-              </select>
-            </div>
-
-            <div class="form-control">
-              <label class="label">
-                <span class="label-text">Actions</span>
-              </label>
-              <div class="flex gap-2">
-                <Button :text="'Refresh'" @clicked="refresh"
-                  class="btn btn-success"></Button>
-                <Button :text="'Clear Filters'" @clicked="clearFilters"
-                  class="btn btn-ghost" ></Button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Analytics Section -->
+      <!-- Tabs Section -->
       <div class="card bg-base-100 shadow-lg mb-6">
         <div class="card-body">
-          <h3 class="card-title text-base-content">Service Analytics</h3>
-
-          <!-- Services by State -->
-          <div class="mb-6">
-            <h4 class="text-lg font-semibold text-base-content mb-4">By State</h4>
-            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              <div v-for="(count, state) in servicesByState" :key="state"
-                   class="stat bg-base-200 rounded-lg p-4">
-                <div class="stat-title capitalize">{{ state }}</div>
-                <div class="stat-value text-2xl text-primary">{{ count }}</div>
-                <div class="stat-desc">
-                  {{ ((count / totalServices) * 100).toFixed(1) }}% of total
-                </div>
-              </div>
-            </div>
+          <div role="tablist" class="tabs tabs-boxed gap-2 p-0">
+            <label class="tab gap-1 text-lg font-medium hover:text-info" v-for="tab in tabs" :key="tab.id">
+              <input v-model="activeTab" type="radio" name="tabs_main" class="tab" :value="tab.component" />
+              <component :is="getIconComponent(tab.icon)" class="w-6 h-6" />
+              {{ tab.name }}
+            </label>
           </div>
 
-          <!-- Services by Start Mode -->
-          <div>
-            <h4 class="text-lg font-semibold text-base-content mb-4">By Start Mode</h4>
-            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
-              <div v-for="(count, mode) in servicesByStartMode" :key="mode"
-                   class="stat bg-base-200 rounded-lg p-4">
-                <div class="stat-title capitalize">{{ mode }}</div>
-                <div class="stat-value text-xl text-secondary">{{ count }}</div>
-                <div class="stat-desc">
-                  {{ ((count / totalServices) * 100).toFixed(1) }}% of total
-                </div>
-              </div>
-            </div>
+          <!-- Dynamic Tab Content -->
+          <div class="mt-6">
+            <component :is="activeTab"
+                       :servicesByState="servicesByState"
+                       :servicesByStartMode="servicesByStartMode"
+                       :totalServices="totalServices"
+                       :filteredCount="filteredServices.length"
+                       :totalCount="totalServices"
+                       @filter="handleFilter" />
           </div>
         </div>
       </div>
 
-      <!-- Pagination Section -->
-      <div class="card bg-base-100 shadow-lg mb-6">
-        <div class="card-body">
-          <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-            <div class="stats stats-vertical lg:stats-horizontal shadow">
-              <div class="stat">
-                <div class="stat-title">Services</div>
-                <div class="stat-value text-primary">{{ paginatedServices.length }}</div>
-                <div class="stat-desc">
-                  of {{ filteredServices.length }}
-                  <span v-if="filteredServices.length !== totalServices" class="text-base-content/60">
-                    ({{ totalServices }} total)
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <div class="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-              <div class="flex items-center gap-2">
-                <label for="pageSize" class="label label-text text-base-content">Show:</label>
-                <select id="pageSize" v-model="pageSize" @change="resetPagination"
-                  class="select select-bordered select-sm">
-                  <option :value="10">10</option>
-                  <option :value="25">25</option>
-                  <option :value="50">50</option>
-                  <option :value="100">100</option>
-                </select>
-              </div>
-
-              <div class="join">
-                <button @click="previousPage" :disabled="currentPage === 1"
-                  class="btn join-item btn-outline" :class="{ 'btn-disabled': currentPage === 1 }">
-                  ← Prev
-                </button>
-                <button class="btn join-item no-animation pointer-events-none">
-                  {{ currentPage }} / {{ totalPages }}
-                </button>
-                <button @click="nextPage" :disabled="currentPage === totalPages"
-                  class="btn join-item btn-outline" :class="{ 'btn-disabled': currentPage === totalPages }">
-                  Next →
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
 
       <!-- Error State -->
       <div v-if="error" class="alert alert-error shadow-lg mb-6">
@@ -289,9 +172,11 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed, watch } from 'vue'
+import { ref, onMounted, computed, watch, markRaw } from 'vue'
 import { loadServices, reloadServiceInfo, disableService, refreshServices } from './services/api.js'
 import Button from './components/Button.vue'
+import FiltersTab from './components/FiltersTab.vue'
+import AnalyticsTab from './components/AnalyticsTab.vue'
 
 const allServices = ref([])
 const filteredServices = ref([])
@@ -303,14 +188,25 @@ const loading = ref(true)
 const showModal = ref(false)
 const selectedService = ref(null)
 
-// Pagination
-const currentPage = ref(1)
-const pageSize = ref(25)
-
-const totalServices = computed(() => allServices.value.length)
-const totalPages = computed(() => Math.ceil(filteredServices.value.length / pageSize.value))
+// Tab system
+const tabs = ref([
+  {
+    id: 'filters',
+    name: 'Filters',
+    component: markRaw(FiltersTab),
+    icon: 'FunnelIcon'
+  },
+  {
+    id: 'analytics',
+    name: 'Analytics',
+    component: markRaw(AnalyticsTab),
+    icon: 'ChartBarIcon'
+  }
+])
+const activeTab = ref(markRaw(FiltersTab))
 
 // Analytics computed properties
+const totalServices = computed(() => allServices.value.length)
 const servicesByState = computed(() => {
   const counts = {}
   allServices.value.forEach(service => {
@@ -328,9 +224,7 @@ const servicesByStartMode = computed(() => {
 })
 
 const paginatedServices = computed(() => {
-  const start = (currentPage.value - 1) * pageSize.value
-  const end = start + pageSize.value
-  return filteredServices.value.slice(start, end)
+  return filteredServices.value
 })
 
 onMounted(async () => {
@@ -426,7 +320,6 @@ const filterServices = () => {
   }
 
   filteredServices.value = filtered
-  resetPagination()
 }
 
 const clearFilters = () => {
@@ -436,21 +329,6 @@ const clearFilters = () => {
   filterServices()
 }
 
-const resetPagination = () => {
-  currentPage.value = 1
-}
-
-const nextPage = () => {
-  if (currentPage.value < totalPages.value) {
-    currentPage.value++
-  }
-}
-
-const previousPage = () => {
-  if (currentPage.value > 1) {
-    currentPage.value--
-  }
-}
 
 const getStateBadgeClass = (state) => {
   const classes = {
@@ -470,14 +348,72 @@ const getSourceBadgeClass = (source) => {
   return 'badge ' + (classes[source] || 'badge-neutral')
 }
 
-// Watch for filter changes to reset pagination
+// Icon components
+const FunnelIcon = {
+  template: `<svg fill="currentColor" viewBox="0 0 24 24">
+    <path d="M13.85 22.25h-3.7c-.74 0-1.36-.54-1.45-1.27l-1.01-8.6c-.1-.83.48-1.59 1.3-1.69l3.7-.42c.82-.1 1.59.48 1.69 1.3l1.01 8.6c.1.83-.48 1.59-1.3 1.69z"/>
+    <path d="M12 2.25c-.41 0-.75.34-.75.75v2c0 .41.34.75.75.75s.75-.34.75-.75v-2c0-.41-.34-.75-.75-.75z"/>
+    <path d="M16.5 5.25c-.19 0-.38-.07-.53-.22l-1.5-1.5c-.29-.29-.29-.77 0-1.06s.77-.29 1.06 0l1.5 1.5c.29.29.29.77 0 1.06-.15.15-.34.22-.53.22z"/>
+    <path d="M7.5 5.25c-.19 0-.38-.07-.53-.22-.29-.29-.29-.77 0-1.06l1.5-1.5c.29-.29.77-.29 1.06 0s.29.77 0 1.06l-1.5 1.5c-.15.15-.34.22-.53.22z"/>
+  </svg>`
+}
+
+const ChartBarIcon = {
+  template: `<svg fill="currentColor" viewBox="0 0 24 24">
+    <path d="M3 3v18h18V3H3zm16 16H5V5h14v14z"/>
+    <path d="M7 7h2v10H7V7zm4 0h2v10h-2V7zm4 0h2v10h-2V7z"/>
+  </svg>`
+}
+
+// Get icon component function
+const getIconComponent = (iconName) => {
+  const icons = {
+    FunnelIcon,
+    ChartBarIcon
+  }
+  return icons[iconName] || FunnelIcon
+}
+
+// Handle filter updates from FiltersTab
+const handleFilter = (filterData) => {
+  searchQuery.value = filterData.searchQuery
+  selectedState.value = filterData.selectedState
+  selectedStartMode.value = filterData.selectedStartMode
+  filterServices()
+}
+
+// Watch for filter changes
 watch([searchQuery, selectedState, selectedStartMode], () => {
-  resetPagination()
+  filterServices()
 })
 </script>
 
 <style scoped>
 .whitespace-pre-line {
   white-space: pre-line;
+}
+
+/* Custom tab styling */
+.tabs-box {
+  box-shadow: none;
+}
+
+.tab {
+  border: var(--border) solid var(--color-base-300) !important;
+  border-radius: var(--radius-field) !important;
+  box-shadow: none;
+  transition: all 0.2s ease;
+}
+
+.tab:hover {
+  border-color: var(--color-primary) !important;
+  background-color: var(--color-primary) !important;
+  color: var(--color-primary-content) !important;
+}
+
+.tab:has(input:checked) {
+  border-color: var(--color-primary) !important;
+  background-color: var(--color-primary) !important;
+  color: var(--color-primary-content) !important;
 }
 </style>

@@ -7,7 +7,6 @@ export async function handleServicesRequest() {
   try {
     const services = await getServices()
     Logger.info(`Returning ${services.length} services in API response`)
-    Logger.info('First service sample:', services[0])
     return createSuccessResponse(services)
   } catch (error) {
     Logger.error('Failed to handle services request', error)
@@ -21,8 +20,27 @@ export async function handleServiceReloadRequest(serviceName) {
   }
 
   try {
+    Logger.info(`Starting reload request for service: ${serviceName}`)
     const additionalInfo = await fetchServiceInfo(serviceName)
-    return createSuccessResponse(additionalInfo)
+    Logger.info(`Additional info for ${serviceName}:`, additionalInfo)
+    Logger.info(`Additional info type: ${typeof additionalInfo}`)
+    Logger.info(`Additional info keys:`, Object.keys(additionalInfo || {}))
+
+    // Ensure recommendation is a string
+    if (additionalInfo && typeof additionalInfo.recommendation === 'object') {
+      if (additionalInfo.recommendation.reason) {
+        additionalInfo.recommendation = additionalInfo.recommendation.reason
+      } else {
+        additionalInfo.recommendation = JSON.stringify(additionalInfo.recommendation)
+      }
+    }
+
+    Logger.info(`Final additional info for ${serviceName}:`, additionalInfo)
+
+    const response = createSuccessResponse(additionalInfo)
+    Logger.info(`Response created for ${serviceName}, status: ${response.status}`)
+    Logger.info(`Response body:`, JSON.stringify(additionalInfo))
+    return response
   } catch (error) {
     Logger.error(`Failed to reload service info for ${serviceName}`, error)
     return createErrorResponse('Failed to reload service information', 500)

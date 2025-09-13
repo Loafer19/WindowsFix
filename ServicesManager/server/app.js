@@ -11,14 +11,17 @@ const server = Bun.serve({
   port: CONFIG.PORT,
   async fetch(req) {
     const url = new URL(req.url)
+    Logger.info(`Incoming request: ${req.method} ${url.pathname}`)
 
     // Handle preflight requests
     if (req.method === 'OPTIONS') {
+      Logger.info('Handling OPTIONS request')
       return new Response(null, { headers: createSecureHeaders() })
     }
 
     // Only allow GET requests
     if (req.method !== 'GET') {
+      Logger.info(`Rejecting ${req.method} request - only GET allowed`)
       return createErrorResponse('Method not allowed', 405)
     }
 
@@ -36,7 +39,22 @@ const server = Bun.serve({
         if (!serviceName) {
           return createErrorResponse('Service name parameter is required', 400)
         }
-        return await handleServiceReloadRequest(decodeURIComponent(serviceName))
+        Logger.info(`Handling reload request for service: ${serviceName}`)
+        try {
+          const response = await handleServiceReloadRequest(decodeURIComponent(serviceName))
+          Logger.info(`Reload response status: ${response.status}, headers:`, Object.fromEntries(response.headers.entries()))
+
+          // Clone the response to read the body for logging
+          const clonedResponse = response.clone()
+          const bodyText = await clonedResponse.text()
+          Logger.info(`Reload response body length: ${bodyText.length} characters`)
+
+          Logger.info(`About to return response for ${serviceName}`)
+          return response
+        } catch (error) {
+          Logger.error(`Error handling reload request for ${serviceName}:`, error)
+          return createErrorResponse('Internal server error during reload', 500)
+        }
       }
 
       if (url.pathname === '/services/disable') {

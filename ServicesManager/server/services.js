@@ -198,12 +198,16 @@ export async function fetchServiceInfo(serviceName) {
 
   // If scraping fails or service not found, try Grok AI
   try {
+    Logger.info(`Attempting AI fetch for service: ${serviceName}`)
     const aiInfo = await fetchServiceInfoFromAI(serviceName)
+    Logger.info(`AI fetch result for ${serviceName}:`, aiInfo)
+
     if (aiInfo) {
       additionalInfo = {
         ...aiInfo,
         source: 'ai'
       }
+      Logger.info(`Final AI info object for ${serviceName}:`, additionalInfo)
       Logger.info(`Fetched service info for ${serviceName} from AI`)
       return await updateServiceInJson(serviceName, additionalInfo)
     } else {
@@ -241,6 +245,10 @@ Format your response as JSON with keys: "description", "explained", "recommendat
     Logger.info(`Attempting to fetch AI info for service: ${serviceName}`)
     Logger.info(`Using API endpoint: ${CONFIG.GROK_API_URL}`)
 
+    // Add timeout to prevent hanging requests
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 10000) // 10 second timeout
+
     const response = await fetch(CONFIG.GROK_API_URL, {
       method: 'POST',
       headers: {
@@ -258,8 +266,11 @@ Format your response as JSON with keys: "description", "explained", "recommendat
         max_tokens: 1000,
         temperature: 0.7,
         stream: false
-      })
+      }),
+      signal: controller.signal
     })
+
+    clearTimeout(timeoutId)
 
     Logger.info(`Grok API response status: ${response.status}`)
 
@@ -279,29 +290,52 @@ Format your response as JSON with keys: "description", "explained", "recommendat
       throw new Error('No response content from Grok API')
     }
 
-    Logger.info(`AI response content: ${aiResponse.substring(0, 200)}...`)
+    Logger.info(`AI response content (full): ${aiResponse}`)
+    Logger.info(`AI response content length: ${aiResponse.length} characters`)
 
     // Try to parse JSON response
     try {
       const parsed = JSON.parse(aiResponse)
+      Logger.info('Successfully parsed AI response as JSON:', parsed)
+
+      // Ensure recommendation is properly handled
+      let recommendation = parsed.recommendation || 'AI-generated recommendation not available'
+      if (typeof recommendation === 'object' && recommendation.reason) {
+        recommendation = recommendation.reason
+      } else if (typeof recommendation === 'object') {
+        recommendation = 'AI-generated recommendation not available'
+      }
+
       return {
         description: parsed.description || 'AI-generated description not available',
         explained: parsed.explained || 'AI-generated explanation not available',
-        recommendation: parsed.recommendation || 'AI-generated recommendation not available'
+        recommendation: recommendation
       }
     } catch (parseError) {
-      Logger.warn('Failed to parse AI response as JSON, using text extraction')
-      return parseAIResponseText(aiResponse)
+      Logger.warn('Failed to parse AI response as JSON, using text extraction. Parse error:', parseError.message)
+      Logger.info('AI response that failed JSON parsing:', aiResponse)
+      const textParsed = parseAIResponseText(aiResponse)
+      Logger.info('Text parsing result:', textParsed)
+      return textParsed
     }
   } catch (error) {
+    if (error.name === 'AbortError') {
+      Logger.error(`Grok API request timed out for ${serviceName}`)
+      throw new Error('AI API request timed out')
+    }
     Logger.error(`Grok API request failed for ${serviceName}:`, error.message)
     throw error
   }
 }
 
 function parseAIResponseText(text) {
+  Logger.info('Starting text parsing of AI response')
+  Logger.info('Raw text to parse:', text)
+
   // Simple text parsing for AI response
   const lines = text.split('\n')
+  Logger.info(`Text has ${lines.length} lines`)
+
   let description = ''
   let explained = ''
   let recommendation = ''
@@ -310,31 +344,42 @@ function parseAIResponseText(text) {
 
   for (const line of lines) {
     const lowerLine = line.toLowerCase()
+    Logger.info(`Processing line: "${line}" (section: ${currentSection})`)
+
     if (lowerLine.includes('description') || lowerLine.includes('1.')) {
       currentSection = 'description'
+      Logger.info('Switched to description section')
       continue
     } else if (lowerLine.includes('explanation') || lowerLine.includes('detailed') || lowerLine.includes('2.')) {
       currentSection = 'explained'
+      Logger.info('Switched to explained section')
       continue
     } else if (lowerLine.includes('recommendation') || lowerLine.includes('3.')) {
       currentSection = 'recommendation'
+      Logger.info('Switched to recommendation section')
       continue
     }
 
     if (currentSection === 'description' && line.trim()) {
       description += line.trim() + ' '
+      Logger.info(`Added to description: "${line.trim()}"`)
     } else if (currentSection === 'explained' && line.trim()) {
       explained += line.trim() + ' '
+      Logger.info(`Added to explained: "${line.trim()}"`)
     } else if (currentSection === 'recommendation' && line.trim()) {
       recommendation += line.trim() + ' '
+      Logger.info(`Added to recommendation: "${line.trim()}"`)
     }
   }
 
-  return {
+  const result = {
     description: description.trim() || 'AI-generated description',
     explained: explained.trim() || 'AI-generated explanation',
     recommendation: recommendation.trim() || 'AI-generated recommendation'
   }
+
+  Logger.info('Text parsing completed. Result:', result)
+  return result
 }
 
 async function fetchWithRetry(url, retries = CONFIG.SCRAPE_RETRIES) {
