@@ -1,33 +1,54 @@
-async function loadServices() {
-  const response = await fetch('http://localhost:3000/services')
+const API_BASE = 'http://localhost:3000'
 
-  return await response.json()
+async function apiRequest(endpoint, options = {}) {
+  try {
+    const response = await fetch(`${API_BASE}${endpoint}`, {
+      headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+      },
+      ...options
+    })
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+    }
+
+    return await response.json()
+  } catch (error) {
+    console.error(`API request failed for ${endpoint}:`, error)
+    throw error
+  }
+}
+
+async function loadServices() {
+  return await apiRequest('/services')
+}
+
+async function refreshServices() {
+  return await apiRequest('/services/refresh')
 }
 
 async function reloadServiceInfo(serviceName) {
   try {
-    const response = await fetch(`http://localhost:3000/services/${serviceName}/reload`)
-
-    return await response.json()
+    return await apiRequest(`/services/${encodeURIComponent(serviceName)}/reload`)
   } catch (error) {
     return {
       error: true,
-      message: 'Reload failed'
+      message: 'Failed to reload service information'
     }
   }
 }
 
 async function disableService(serviceName) {
   try {
-    const response = await fetch(`http://localhost:3000/services/${serviceName}/disable`)
-
-    return await response.json()
+    return await apiRequest(`/services/${encodeURIComponent(serviceName)}/disable`)
   } catch (error) {
     return {
       error: true,
-      message: 'Disabling failed'
+      message: 'Failed to disable service'
     }
   }
 }
 
-export { loadServices, reloadServiceInfo, disableService }
+export { loadServices, refreshServices, reloadServiceInfo, disableService }
