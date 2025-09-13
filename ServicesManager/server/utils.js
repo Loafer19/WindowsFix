@@ -5,10 +5,24 @@ export function validateServiceName(serviceName) {
   if (!serviceName || typeof serviceName !== 'string') {
     return false
   }
-  // Allow only alphanumeric characters, underscores, and hyphens
-  // Windows service names typically follow this pattern
-  const validPattern = /^[a-zA-Z0-9_-]+$/
-  return validPattern.test(serviceName) && serviceName.length <= 256
+
+  // Allow alphanumeric characters, spaces, underscores, hyphens, and common punctuation
+  // Windows service names can contain spaces and various characters
+  const validPattern = /^[a-zA-Z0-9\s_\-().&]+$/
+
+  // Additional checks for security
+  const trimmed = serviceName.trim()
+  if (trimmed.length === 0 || trimmed.length > 256) {
+    return false
+  }
+
+  // Prevent potential path traversal or command injection
+  if (trimmed.includes('..') || trimmed.includes('|') || trimmed.includes('&') ||
+      trimmed.includes(';') || trimmed.includes('`')) {
+    return false
+  }
+
+  return validPattern.test(trimmed)
 }
 
 // Security headers

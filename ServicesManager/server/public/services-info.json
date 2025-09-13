@@ -1434,7 +1434,15 @@
     "recommendation": "Мы живём в 21 веке\nРекомендуется оставить эту службу Вручную."
   },
   "ADPSvc": {
-    "error": true,
-    "message": "Not found"
+    "description": "Windows service: ADPSvc",
+    "explained": "This is a Windows system service named ADPSvc. Specific information about this service could not be retrieved from available sources.",
+    "recommendation": "Unable to provide specific recommendations for this service. Please research this service carefully before making changes, as disabling system services can affect system stability.",
+    "source": "fallback"
+  },
+  "AMD External Events Utility": {
+    "description": "The 'AMD External Events Utility' is a Windows service associated with AMD graphics drivers. It handles external events and system interactions related to AMD hardware, primarily for managing power settings and performance optimizations for AMD GPUs.",
+    "explained": "The 'AMD External Events Utility' service is part of the AMD Catalyst or AMD Radeon Software suite, which is installed alongside AMD graphics drivers. Its primary purpose is to monitor and manage external events that could affect the performance or power state of AMD graphics hardware. This includes tasks such as adjusting power profiles based on system workload, enabling or disabling certain GPU features in response to system events, and facilitating communication between the operating system and AMD hardware for optimal performance. For example, it may help in dynamically switching between power-saving and high-performance modes depending on whether the system is running on battery or plugged in (for laptops with AMD GPUs). It also plays a role in ensuring compatibility and stability by handling driver-level events that are not directly managed by the core graphics driver. Without this service, certain features like automatic performance tuning or power management might not function as intended, potentially leading to suboptimal performance or increased power consumption.",
+    "recommendation": "It is generally not recommended to disable the 'AMD External Events Utility' service unless you are experiencing specific issues directly linked to it, such as system instability or conflicts with other software. Disabling it may result in improper power management or reduced performance of your AMD GPU, as the system might not be able to dynamically adjust settings based on workload or power state. If you do not use advanced AMD features or if your system does not rely on dynamic GPU switching (e.g., a desktop with a dedicated AMD GPU and no integrated graphics), the impact of disabling it might be minimal. However, for most users, especially those with laptops or systems relying on AMD's power-saving technologies, keeping this service enabled is advisable to ensure optimal functionality and efficiency. If you suspect it is causing problems, consider updating your AMD drivers or consulting AMD support before disabling it.",
+    "source": "ai"
   }
 }

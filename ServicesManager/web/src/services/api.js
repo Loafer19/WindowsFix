@@ -31,7 +31,7 @@ async function refreshServices() {
 
 async function reloadServiceInfo(serviceName) {
   try {
-    return await apiRequest(`/services/${encodeURIComponent(serviceName)}/reload`)
+    return await apiRequest(`/services/reload?name=${encodeURIComponent(serviceName)}`)
   } catch (error) {
     return {
       error: true,
@@ -42,7 +42,7 @@ async function reloadServiceInfo(serviceName) {
 
 async function disableService(serviceName) {
   try {
-    return await apiRequest(`/services/${encodeURIComponent(serviceName)}/disable`)
+    return await apiRequest(`/services/disable?name=${encodeURIComponent(serviceName)}`)
   } catch (error) {
     return {
       error: true,

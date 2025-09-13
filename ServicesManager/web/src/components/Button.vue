@@ -9,7 +9,7 @@ defineProps({
 </script>
 
 <template>
-    <button @click="emit('clicked')" :class="class" class="underline cursor-pointer" :disabled="disabled">
+    <button @click="emit('clicked')" class="btn" :class="class" :disabled="disabled">
         {{ text }}
     </button>
 </template>

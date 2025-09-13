@@ -31,16 +31,20 @@ const server = Bun.serve({
         return await handleServicesRefreshRequest()
       }
 
-      const reloadMatch = url.pathname.match(/^\/services\/([^\/]+)\/reload$/)
-      if (reloadMatch) {
-        const serviceName = decodeURIComponent(reloadMatch[1])
-        return await handleServiceReloadRequest(serviceName)
+      if (url.pathname === '/services/reload') {
+        const serviceName = url.searchParams.get('name')
+        if (!serviceName) {
+          return createErrorResponse('Service name parameter is required', 400)
+        }
+        return await handleServiceReloadRequest(decodeURIComponent(serviceName))
       }
 
-      const disableMatch = url.pathname.match(/^\/services\/([^\/]+)\/disable$/)
-      if (disableMatch) {
-        const serviceName = decodeURIComponent(disableMatch[1])
-        return await handleServiceDisableRequest(serviceName)
+      if (url.pathname === '/services/disable') {
+        const serviceName = url.searchParams.get('name')
+        if (!serviceName) {
+          return createErrorResponse('Service name parameter is required', 400)
+        }
+        return await handleServiceDisableRequest(decodeURIComponent(serviceName))
       }
 
       // 404 for unknown routes

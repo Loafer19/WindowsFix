@@ -156,6 +156,7 @@ export async function fetchServiceInfo(serviceName) {
     message: 'Fetch error'
   }
 
+  // First try scraping the existing source
   const searchUrl = `https://win10tweaker.ru/?s=${serviceName}`
 
   try {
@@ -168,35 +169,172 @@ export async function fetchServiceInfo(serviceName) {
 
     const targetLink = targetPost.find('.fusion-post-title a').attr('href')
 
-    if (!targetLink || !targetLink.includes('/twikinarium/services/')) {
-      additionalInfo.message = 'Not found'
+    if (targetLink && targetLink.includes('/twikinarium/services/')) {
+      const itemResponse = await fetchWithRetry(targetLink)
+      const $detail = cheerio.load(await itemResponse.text())
+
+      const description = $detail('p:contains("Описание по умолчанию")').next('p').text().trim()
+      const explained = $detail('p:contains("Нормальное описание")').next('p').text().trim()
+      const recommendation = $detail('p:contains("Рекомендации")')
+        .nextAll()
+        .text()
+        .trim()
+        .replace('Учитывая следующее:\n', '')
+
+      additionalInfo = {
+        url: targetLink,
+        description: description || 'Not found',
+        explained: explained || 'Not found',
+        recommendation: recommendation || 'Not found',
+        source: 'scraped'
+      }
+
+      Logger.info(`Fetched service info for ${serviceName} from scraping`)
       return await updateServiceInJson(serviceName, additionalInfo)
     }
-
-    const itemResponse = await fetchWithRetry(targetLink)
-    const $detail = cheerio.load(await itemResponse.text())
-
-    const description = $detail('p:contains("Описание по умолчанию")').next('p').text().trim()
-    const explained = $detail('p:contains("Нормальное описание")').next('p').text().trim()
-    const recommendation = $detail('p:contains("Рекомендации")')
-      .nextAll()
-      .text()
-      .trim()
-      .replace('Учитывая следующее:\n', '')
-
-    additionalInfo = {
-      url: targetLink,
-      description: description || 'Not found',
-      explained: explained || 'Not found',
-      recommendation: recommendation || 'Not found'
-    }
-
-    Logger.info(`Fetched service info for ${serviceName}`)
   } catch (error) {
-    Logger.error(`Failed to fetch service info for ${serviceName}`, error)
+    Logger.warn(`Scraping failed for ${serviceName}, trying AI:`, error.message)
   }
 
+  // If scraping fails or service not found, try Grok AI
+  try {
+    const aiInfo = await fetchServiceInfoFromAI(serviceName)
+    if (aiInfo) {
+      additionalInfo = {
+        ...aiInfo,
+        source: 'ai'
+      }
+      Logger.info(`Fetched service info for ${serviceName} from AI`)
+      return await updateServiceInJson(serviceName, additionalInfo)
+    } else {
+      Logger.warn(`AI returned null for ${serviceName}`)
+    }
+  } catch (error) {
+    Logger.error(`AI fetch failed for ${serviceName}:`, error.message)
+  }
+
+  // If both fail, provide a generic response
+  additionalInfo = {
+    description: `Windows service: ${serviceName}`,
+    explained: `This is a Windows system service named ${serviceName}. Specific information about this service could not be retrieved from available sources.`,
+    recommendation: `Unable to provide specific recommendations for this service. Please research this service carefully before making changes, as disabling system services can affect system stability.`,
+    source: 'fallback'
+  }
+  Logger.warn(`Using fallback info for ${serviceName}`)
   return await updateServiceInJson(serviceName, additionalInfo)
+}
+
+async function fetchServiceInfoFromAI(serviceName) {
+  if (!CONFIG.GROK_API_KEY) {
+    Logger.warn('Grok API key not configured, skipping AI fetch')
+    return null
+  }
+
+  const prompt = `What is the Windows service "${serviceName}"? Please provide:
+1. A brief description of what this service does
+2. A detailed explanation of its purpose and functionality
+3. A recommendation on whether users should disable it and why
+
+Format your response as JSON with keys: "description", "explained", "recommendation"`
+
+  try {
+    Logger.info(`Attempting to fetch AI info for service: ${serviceName}`)
+    Logger.info(`Using API endpoint: ${CONFIG.GROK_API_URL}`)
+
+    const response = await fetch(CONFIG.GROK_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${CONFIG.GROK_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: 'grok-3',
+        messages: [
+          {
+            role: 'user',
+            content: prompt
+          }
+        ],
+        max_tokens: 1000,
+        temperature: 0.7,
+        stream: false
+      })
+    })
+
+    Logger.info(`Grok API response status: ${response.status}`)
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      Logger.error(`Grok API error response: ${errorText}`)
+      throw new Error(`Grok API error: ${response.status} - ${errorText}`)
+    }
+
+    const data = await response.json()
+    Logger.info('Grok API response data:', JSON.stringify(data, null, 2))
+
+    const aiResponse = data.choices?.[0]?.message?.content
+
+    if (!aiResponse) {
+      Logger.warn('No content in AI response')
+      throw new Error('No response content from Grok API')
+    }
+
+    Logger.info(`AI response content: ${aiResponse.substring(0, 200)}...`)
+
+    // Try to parse JSON response
+    try {
+      const parsed = JSON.parse(aiResponse)
+      return {
+        description: parsed.description || 'AI-generated description not available',
+        explained: parsed.explained || 'AI-generated explanation not available',
+        recommendation: parsed.recommendation || 'AI-generated recommendation not available'
+      }
+    } catch (parseError) {
+      Logger.warn('Failed to parse AI response as JSON, using text extraction')
+      return parseAIResponseText(aiResponse)
+    }
+  } catch (error) {
+    Logger.error(`Grok API request failed for ${serviceName}:`, error.message)
+    throw error
+  }
+}
+
+function parseAIResponseText(text) {
+  // Simple text parsing for AI response
+  const lines = text.split('\n')
+  let description = ''
+  let explained = ''
+  let recommendation = ''
+
+  let currentSection = ''
+
+  for (const line of lines) {
+    const lowerLine = line.toLowerCase()
+    if (lowerLine.includes('description') || lowerLine.includes('1.')) {
+      currentSection = 'description'
+      continue
+    } else if (lowerLine.includes('explanation') || lowerLine.includes('detailed') || lowerLine.includes('2.')) {
+      currentSection = 'explained'
+      continue
+    } else if (lowerLine.includes('recommendation') || lowerLine.includes('3.')) {
+      currentSection = 'recommendation'
+      continue
+    }
+
+    if (currentSection === 'description' && line.trim()) {
+      description += line.trim() + ' '
+    } else if (currentSection === 'explained' && line.trim()) {
+      explained += line.trim() + ' '
+    } else if (currentSection === 'recommendation' && line.trim()) {
+      recommendation += line.trim() + ' '
+    }
+  }
+
+  return {
+    description: description.trim() || 'AI-generated description',
+    explained: explained.trim() || 'AI-generated explanation',
+    recommendation: recommendation.trim() || 'AI-generated recommendation'
+  }
 }
 
 async function fetchWithRetry(url, retries = CONFIG.SCRAPE_RETRIES) {
