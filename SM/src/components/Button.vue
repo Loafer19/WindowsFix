@@ -2,7 +2,7 @@
   <button
     :class="buttonClass"
     :disabled="disabled"
-    @click="handleClick"
+    @click="emit('clicked')"
   >
     <slot>{{ text }}</slot>
   </button>
@@ -31,14 +31,4 @@ const emit = defineEmits(['clicked'])
 const buttonClass = computed(() => {
   return props.class || 'btn btn-primary'
 })
-
-const handleClick = () => {
-  if (!props.disabled) {
-    emit('clicked')
-  }
-}
 </script>
-
-<style scoped>
-/* Component-specific styles can be added here if needed */
-</style>

@@ -270,7 +270,7 @@ async fn get_windows_services() -> Result<Vec<WindowsService>, String> {
                 let startup_type_str = if config_size > 0 {
                     let mut config_buffer = vec![0u8; config_size as usize];
                     if QueryServiceConfigW(service, Some(config_buffer.as_mut_ptr() as *mut _), config_size, &mut config_size).is_ok() {
-                        let config = unsafe { &*(config_buffer.as_ptr() as *const QUERY_SERVICE_CONFIGW) };
+                        let config = &*(config_buffer.as_ptr() as *const QUERY_SERVICE_CONFIGW);
                         match config.dwStartType {
                             SERVICE_AUTO_START => "Automatic",
                             SERVICE_DEMAND_START => "Manual",

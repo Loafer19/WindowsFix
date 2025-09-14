@@ -29,7 +29,7 @@
         Status
       </label>
       <select id="statusFilter" v-model="selectedStatus" @change="filterServices" class="select select-bordered">
-        <option value="">All Statuses</option>
+        <option value="">All</option>
         <option value="Running">Running</option>
         <option value="Stopped">Stopped</option>
         <option value="Paused">Paused</option>
@@ -42,7 +42,7 @@
         Startup Type
       </label>
       <select id="startupTypeFilter" v-model="selectedStartupType" @change="filterServices" class="select select-bordered">
-        <option value="">All Startup Types</option>
+        <option value="">All</option>
         <option value="Automatic">Automatic</option>
         <option value="Manual">Manual</option>
         <option value="Disabled">Disabled</option>
