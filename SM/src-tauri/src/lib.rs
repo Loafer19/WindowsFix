@@ -7,14 +7,18 @@ use std::time::{Duration, SystemTime};
 use serde::{Deserialize, Serialize};
 use tauri::State;
 use tokio::time::timeout;
+use windows::core::PCWSTR;
+use windows::Win32::System::Services::*;
 
 // Data structures
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WindowsService {
     pub name: String,
+    #[serde(rename = "displayName")]
     pub display_name: String,
-    pub state: String,
-    pub start_mode: String,
+    pub status: String,
+    #[serde(rename = "startupType")]
+    pub startup_type: String,
     pub info: ServiceInfo,
 }
 
@@ -128,8 +132,8 @@ async fn disable_service(service_name: String, state: State<'_, AppState>) -> Re
             // Update cache
             let mut cache = state.services_cache.lock().unwrap();
             if let Some(service) = cache.data.iter_mut().find(|s| s.name == service_name) {
-                service.state = updated_service.state.clone();
-                service.start_mode = updated_service.start_mode.clone();
+                service.status = updated_service.status.clone();
+                service.startup_type = updated_service.startup_type.clone();
             }
 
             Ok(ServiceResponse {
@@ -161,8 +165,8 @@ async fn refresh_services_cache(services_info: &Mutex<HashMap<String, ServiceInf
                     WindowsService {
                         name: name.clone(),
                         display_name: service.display_name,
-                        state: service.state,
-                        start_mode: service.start_mode,
+                        status: service.status,
+                        startup_type: service.startup_type,
                         info,
                     }
                 })
@@ -175,43 +179,138 @@ async fn refresh_services_cache(services_info: &Mutex<HashMap<String, ServiceInf
 }
 
 async fn get_windows_services() -> Result<Vec<WindowsService>, String> {
-    // Use Windows API to get services
-    // This is a simplified implementation - in practice you'd use the windows crate
-    // to call the Service Control Manager APIs
+    unsafe {
+        let scm = OpenSCManagerW(None, None, SC_MANAGER_ENUMERATE_SERVICE).map_err(|e| format!("Failed to open SCM: {:?}", e))?;
 
-    // For now, return mock data - replace with actual Windows API calls
-    Ok(vec![
-        WindowsService {
-            name: "wuauserv".to_string(),
-            display_name: "Windows Update".to_string(),
-            state: "Running".to_string(),
-            start_mode: "Automatic".to_string(),
-            info: ServiceInfo {
-                url: None,
-                description: None,
-                explained: None,
-                recommendation: None,
-                source: None,
-                error: Some(true),
-                message: Some("Not loaded".to_string()),
-            },
-        },
-        WindowsService {
-            name: "spooler".to_string(),
-            display_name: "Print Spooler".to_string(),
-            state: "Stopped".to_string(),
-            start_mode: "Manual".to_string(),
-            info: ServiceInfo {
-                url: None,
-                description: None,
-                explained: None,
-                recommendation: None,
-                source: None,
-                error: Some(true),
-                message: Some("Not loaded".to_string()),
-            },
-        },
-    ])
+        let mut bytes_needed: u32 = 0;
+        let mut services_returned: u32 = 0;
+
+        // First call to get buffer size
+        let result = EnumServicesStatusExW(
+            scm,
+            SC_ENUM_PROCESS_INFO,
+            SERVICE_WIN32,
+            SERVICE_STATE_ALL,
+            None,
+            &mut bytes_needed,
+            &mut services_returned,
+            None,
+            None,
+        );
+
+        if let Err(e) = result {
+            // ERROR_MORE_DATA (0x800700EA) is expected when buffer is too small
+            if e.code().0 != 0x800700EAu32 as i32 {
+                CloseServiceHandle(scm).ok();
+                return Err(format!("Failed to get buffer size: {:?}", e));
+            }
+        }
+
+        if bytes_needed == 0 {
+            CloseServiceHandle(scm).ok();
+            return Ok(vec![]);
+        }
+
+        let mut buffer = vec![0u8; bytes_needed as usize];
+
+        loop {
+            let result = EnumServicesStatusExW(
+                scm,
+                SC_ENUM_PROCESS_INFO,
+                SERVICE_WIN32,
+                SERVICE_STATE_ALL,
+                Some(&mut buffer),
+                &mut bytes_needed,
+                &mut services_returned,
+                None,
+                None,
+            );
+
+            if let Err(e) = result {
+                if e.code().0 == 0x800700EAu32 as i32 { // ERROR_MORE_DATA
+                    // Buffer too small, increase size
+                    bytes_needed = bytes_needed * 2;
+                    buffer.resize(bytes_needed as usize, 0);
+                    continue;
+                } else {
+                    CloseServiceHandle(scm).ok();
+                    return Err(format!("Failed to enumerate services: {:?}", e));
+                }
+            } else {
+                break;
+            }
+        }
+
+        let service_infos = std::slice::from_raw_parts(buffer.as_ptr() as *const ENUM_SERVICE_STATUS_PROCESSW, services_returned as usize);
+
+        let mut services = Vec::new();
+
+        for service_info in service_infos {
+            let name = service_info.lpServiceName.to_string().map_err(|_| "Invalid service name")?;
+            let mut display_name = service_info.lpDisplayName.to_string().map_err(|_| "Invalid display name")?;
+            if display_name.is_empty() {
+                display_name = name.clone();
+            }
+
+            let status = match service_info.ServiceStatusProcess.dwCurrentState {
+                SERVICE_RUNNING => "Running",
+                SERVICE_STOPPED => "Stopped",
+                SERVICE_START_PENDING => "Start Pending",
+                SERVICE_STOP_PENDING => "Stop Pending",
+                SERVICE_PAUSE_PENDING => "Pause Pending",
+                SERVICE_PAUSED => "Paused",
+                _ => "Unknown",
+            }.to_string();
+
+            // Get startup type
+            let startup_type = if let Ok(service) = OpenServiceW(scm, PCWSTR::from_raw(service_info.lpServiceName.as_ptr() as *const _), SERVICE_QUERY_CONFIG) {
+                let mut config_size: u32 = 0;
+                let _ = QueryServiceConfigW(service, None, 0, &mut config_size);
+
+                let startup_type_str = if config_size > 0 {
+                    let mut config_buffer = vec![0u8; config_size as usize];
+                    if QueryServiceConfigW(service, Some(config_buffer.as_mut_ptr() as *mut _), config_size, &mut config_size).is_ok() {
+                        let config = unsafe { &*(config_buffer.as_ptr() as *const QUERY_SERVICE_CONFIGW) };
+                        match config.dwStartType {
+                            SERVICE_AUTO_START => "Automatic",
+                            SERVICE_DEMAND_START => "Manual",
+                            SERVICE_DISABLED => "Disabled",
+                            SERVICE_BOOT_START => "Boot",
+                            SERVICE_SYSTEM_START => "System",
+                            _ => "Unknown",
+                        }
+                    } else {
+                        "Unknown"
+                    }
+                } else {
+                    "Unknown"
+                };
+                CloseServiceHandle(service).ok();
+                startup_type_str.to_string()
+            } else {
+                "Unknown".to_string()
+            };
+
+            services.push(WindowsService {
+                name,
+                display_name,
+                status,
+                startup_type,
+                info: ServiceInfo {
+                    url: None,
+                    description: None,
+                    explained: None,
+                    recommendation: None,
+                    source: None,
+                    error: Some(true),
+                    message: Some("Not loaded".to_string()),
+                },
+            });
+        }
+
+        CloseServiceHandle(scm).ok();
+        Ok(services)
+    }
 }
 
 async fn disable_windows_service(service_name: &str) -> Result<WindowsService, String> {
@@ -221,8 +320,8 @@ async fn disable_windows_service(service_name: &str) -> Result<WindowsService, S
     Ok(WindowsService {
         name: service_name.to_string(),
         display_name: format!("{} (Disabled)", service_name),
-        state: "Stopped".to_string(),
-        start_mode: "Disabled".to_string(),
+        status: "Stopped".to_string(),
+        startup_type: "Disabled".to_string(),
         info: ServiceInfo {
             url: None,
             description: None,
@@ -430,10 +529,29 @@ fn save_services_info(services_info: &HashMap<String, ServiceInfo>) {
 
 fn load_services_info() -> HashMap<String, ServiceInfo> {
     if let Some(app_dir) = directories::ProjectDirs::from("com", "servicesmanager", "app") {
-        let file_path = app_dir.data_dir().join("services-info.json");
-        if let Ok(content) = fs::read_to_string(file_path) {
-            if let Ok(data) = serde_json::from_str(&content) {
-                return data;
+        let data_dir = app_dir.data_dir();
+        let file_path = data_dir.join("services-info.json");
+        if file_path.exists() {
+            if let Ok(content) = fs::read_to_string(&file_path) {
+                if let Ok(data) = serde_json::from_str(&content) {
+                    return data;
+                }
+            }
+        } else {
+            // Try to load from bundled location
+            if let Ok(current_dir) = std::env::current_dir() {
+                let bundled_path = current_dir.join("ServicesManager/server/public/services-info.json");
+                if let Ok(content) = fs::read_to_string(&bundled_path) {
+                    if let Ok(data) = serde_json::from_str(&content) {
+                        // Save to data_dir
+                        if fs::create_dir_all(data_dir).is_ok() {
+                            if let Ok(json) = serde_json::to_string_pretty(&data) {
+                                let _ = fs::write(&file_path, json);
+                            }
+                        }
+                        return data;
+                    }
+                }
             }
         }
     }

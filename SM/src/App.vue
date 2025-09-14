@@ -1,32 +1,20 @@
 <template>
-  <div class="min-h-screen bg-base-300">
-    <div class="container mx-auto px-4 py-8 max-w-7xl">
-      <header class="mb-8">
-        <h1 class="text-4xl font-bold text-base-content mb-2">Windows Services Manager</h1>
-        <p class="text-base-content/70">Manage and monitor Windows services with detailed information</p>
-      </header>
+  <div class="min-h-screen bg-base-200">
+    <div class="container mx-auto p-6">
 
-      <!-- Tabs Section -->
-      <div class="card bg-base-100 shadow-lg mb-6">
+      <div role="tablist" class="tabs tabs-boxed gap-2 p-0 mb-6">
+        <label class="tab gap-1 text-lg font-medium hover:text-info" v-for="tab in tabs" :key="tab.id">
+          <input v-model="activeTab" type="radio" name="tabs_main" class="tab" :value="tab.component" />
+          <component :is="getIconComponent(tab.icon)" class="w-6 h-6" />
+          {{ tab.name }}
+        </label>
+      </div>
+
+      <div class="card bg-base-100 card-border border-base-300 mb-6">
         <div class="card-body">
-          <div role="tablist" class="tabs tabs-boxed gap-2 p-0">
-            <label class="tab gap-1 text-lg font-medium hover:text-info" v-for="tab in tabs" :key="tab.id">
-              <input v-model="activeTab" type="radio" name="tabs_main" class="tab" :value="tab.component" />
-              <component :is="getIconComponent(tab.icon)" class="w-6 h-6" />
-              {{ tab.name }}
-            </label>
-          </div>
-
-          <!-- Dynamic Tab Content -->
-          <div class="mt-6">
-            <component :is="activeTab"
-                       :servicesByState="servicesByState"
-                       :servicesByStartMode="servicesByStartMode"
-                       :totalServices="totalServices"
-                       :filteredCount="filteredServices.length"
-                       :totalCount="totalServices"
-                       @filter="handleFilter" />
-          </div>
+          <component :is="activeTab" :servicesByStatus="servicesByStatus" :servicesByStartupType="servicesByStartupType"
+            :totalServices="totalServices" :filteredCount="filteredServices.length" :totalCount="totalServices"
+            @filter="handleFilter" />
         </div>
       </div>
 
@@ -34,7 +22,9 @@
       <!-- Error State -->
       <div v-if="error" class="alert alert-error shadow-lg mb-6">
         <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-          <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
+          <path fill-rule="evenodd"
+            d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
+            clip-rule="evenodd" />
         </svg>
         <div>
           <h3 class="font-bold">Error Loading Services</h3>
@@ -51,51 +41,48 @@
       </div>
 
       <!-- Services Table -->
-      <div v-else class="card bg-base-100 shadow-lg overflow-hidden">
+      <div v-else class="card bg-base-100 card-border border-base-300">
         <div class="overflow-x-auto">
-          <table class="table table-zebra">
+          <table class="table">
             <thead>
               <tr>
                 <th>Name</th>
-                <th>Display Name</th>
-                <th>State</th>
-                <th>Start Mode</th>
+                <th>Status</th>
+                <th>Startup Type</th>
                 <th>Actions</th>
               </tr>
             </thead>
             <tbody>
               <template v-for="service in paginatedServices" :key="service.name">
-                <tr class="hover">
-                  <td class="font-medium text-base-content">{{ service.name }}</td>
-                  <td class="text-base-content/70">{{ service.displayName }}</td>
+                <tr>
+                  <td class="font-medium text-base-content">
+                    <span class="tooltip tooltip-right" :data-tip="service.displayName">{{ service.name }}</span>
+                  </td>
                   <td>
-                    <div :class="getStateBadgeClass(service.state)" class="badge">
-                      {{ service.state }}
+                    <div :class="getStatusBadgeClass(service.status)" class="badge">
+                      {{ service.status }}
                     </div>
                   </td>
-                  <td class="text-base-content/70">{{ service.startMode }}</td>
+                  <td class="text-base-content/70">{{ service.startupType }}</td>
                   <td>
                     <div class="flex items-center space-x-2">
                       <Button :text="service.isExpanded ? 'Hide Info' : 'Show Info'"
                         :class="service.isExpanded ? 'btn btn-ghost btn-sm' : 'btn btn-primary btn-sm'"
                         @clicked="service.isExpanded = !service.isExpanded" />
 
-                      <Button v-if="service.startMode !== 'Disabled'"
-                        :text="service.isDisabling ? 'Disabling...' : 'Disable'"
-                        :disabled="service.isDisabling"
-                        class="btn btn-error btn-sm"
-                        @clicked="openModal(service)" />
+                      <Button v-if="service.startupType !== 'Disabled'"
+                        :text="service.isDisabling ? 'Disabling...' : 'Disable'" :disabled="service.isDisabling"
+                        class="btn btn-error btn-sm" @clicked="openModal(service)" />
                     </div>
                   </td>
                 </tr>
                 <tr v-show="service.isExpanded" class="bg-base-200">
-                  <td colspan="5" class="p-4">
+                  <td colspan="4" class="p-4">
                     <div class="space-y-4">
                       <div class="flex items-center justify-between">
                         <h4 class="text-lg font-bold text-base-content">Service Details</h4>
                         <Button :text="service.isReloading ? 'Reloading...' : 'Reload Info'"
-                          :disabled="service.isDisabling"
-                          class="btn btn-warning btn-sm"
+                          :disabled="service.isDisabling" class="btn btn-warning btn-sm"
                           @clicked="reloadInfo(service)" />
                       </div>
 
@@ -111,8 +98,8 @@
 
                         <div v-if="service.info.url" class="md:col-span-2">
                           <label class="label label-text text-base-content/70">Source URL</label>
-                          <a :href="service.info.url" target="_blank"
-                            class="link link-primary break-all">{{ service.info.url }}</a>
+                          <a :href="service.info.url" target="_blank" class="link link-primary break-all">{{
+                            service.info.url }}</a>
                         </div>
 
                         <div v-if="service.info.description">
@@ -149,14 +136,15 @@
         <!-- Empty State -->
         <div v-if="paginatedServices.length === 0" class="text-center py-12">
           <svg class="mx-auto h-12 w-12 text-base-content/50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
           </svg>
           <h3 class="mt-2 text-lg font-bold text-base-content">No services found</h3>
           <p class="mt-1 text-base-content/70">Try adjusting your search or filter criteria.</p>
         </div>
-        </div>
       </div>
     </div>
+  </div>
 
   <!-- Confirmation Modal -->
   <div v-if="showModal" class="modal modal-open">
@@ -181,8 +169,8 @@ import AnalyticsTab from './components/AnalyticsTab.vue'
 const allServices = ref([])
 const filteredServices = ref([])
 const searchQuery = ref('')
-const selectedState = ref('')
-const selectedStartMode = ref('')
+const selectedStatus = ref('')
+const selectedStartupType = ref('')
 const error = ref(false)
 const loading = ref(true)
 const showModal = ref(false)
@@ -207,18 +195,18 @@ const activeTab = ref(markRaw(FiltersTab))
 
 // Analytics computed properties
 const totalServices = computed(() => allServices.value.length)
-const servicesByState = computed(() => {
+const servicesByStatus = computed(() => {
   const counts = {}
   allServices.value.forEach(service => {
-    counts[service.state] = (counts[service.state] || 0) + 1
+    counts[service.status] = (counts[service.status] || 0) + 1
   })
   return counts
 })
 
-const servicesByStartMode = computed(() => {
+const servicesByStartupType = computed(() => {
   const counts = {}
   allServices.value.forEach(service => {
-    counts[service.startMode] = (counts[service.startMode] || 0) + 1
+    counts[service.startupType] = (counts[service.startupType] || 0) + 1
   })
   return counts
 })
@@ -302,12 +290,12 @@ const confirmDisable = () => {
 const filterServices = () => {
   let filtered = [...allServices.value]
 
-  if (selectedState.value) {
-    filtered = filtered.filter((service) => service.state === selectedState.value)
+  if (selectedStatus.value) {
+    filtered = filtered.filter((service) => service.status === selectedStatus.value)
   }
 
-  if (selectedStartMode.value) {
-    filtered = filtered.filter((service) => service.startMode === selectedStartMode.value)
+  if (selectedStartupType.value) {
+    filtered = filtered.filter((service) => service.startupType === selectedStartupType.value)
   }
 
   if (searchQuery.value) {
@@ -322,22 +310,14 @@ const filterServices = () => {
   filteredServices.value = filtered
 }
 
-const clearFilters = () => {
-  searchQuery.value = ''
-  selectedState.value = ''
-  selectedStartMode.value = ''
-  filterServices()
-}
-
-
-const getStateBadgeClass = (state) => {
+const getStatusBadgeClass = (status) => {
   const classes = {
-    'Running': 'badge-success',
-    'Stopped': 'badge-error',
+    'Running': 'badge-error',
+    'Stopped': 'badge-success',
     'Paused': 'badge-warning',
     'Pending': 'badge-info'
   }
-  return 'badge ' + (classes[state] || 'badge-neutral')
+  return 'badge ' + (classes[status] || 'badge-neutral')
 }
 
 const getSourceBadgeClass = (source) => {
@@ -377,13 +357,13 @@ const getIconComponent = (iconName) => {
 // Handle filter updates from FiltersTab
 const handleFilter = (filterData) => {
   searchQuery.value = filterData.searchQuery
-  selectedState.value = filterData.selectedState
-  selectedStartMode.value = filterData.selectedStartMode
+  selectedStatus.value = filterData.selectedStatus
+  selectedStartupType.value = filterData.selectedStartupType
   filterServices()
 }
 
 // Watch for filter changes
-watch([searchQuery, selectedState, selectedStartMode], () => {
+watch([searchQuery, selectedStatus, selectedStartupType], () => {
   filterServices()
 })
 </script>
@@ -418,125 +398,4 @@ watch([searchQuery, selectedState, selectedStartMode], () => {
 }
 </style>
 
-<style scoped>
-.logo.vite:hover {
-  filter: drop-shadow(0 0 2em #747bff);
-}
-
-.logo.vue:hover {
-  filter: drop-shadow(0 0 2em #249b73);
-}
-
-</style>
-<style>
-:root {
-  font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
-  font-size: 16px;
-  line-height: 24px;
-  font-weight: 400;
-
-  color: #0f0f0f;
-  background-color: #f6f6f6;
-
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  -webkit-text-size-adjust: 100%;
-}
-
-.container {
-  margin: 0;
-  padding-top: 10vh;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  text-align: center;
-}
-
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: 0.75s;
-}
-
-.logo.tauri:hover {
-  filter: drop-shadow(0 0 2em #24c8db);
-}
-
-.row {
-  display: flex;
-  justify-content: center;
-}
-
-a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
-}
-
-a:hover {
-  color: #535bf2;
-}
-
-h1 {
-  text-align: center;
-}
-
-input,
-button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  color: #0f0f0f;
-  background-color: #ffffff;
-  transition: border-color 0.25s;
-  box-shadow: 0 2px 2px rgba(0, 0, 0, 0.2);
-}
-
-button {
-  cursor: pointer;
-}
-
-button:hover {
-  border-color: #396cd8;
-}
-button:active {
-  border-color: #396cd8;
-  background-color: #e8e8e8;
-}
-
-input,
-button {
-  outline: none;
-}
-
-#greet-input {
-  margin-right: 5px;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    color: #f6f6f6;
-    background-color: #2f2f2f;
-  }
-
-  a:hover {
-    color: #24c8db;
-  }
-
-  input,
-  button {
-    color: #ffffff;
-    background-color: #0f0f0f98;
-  }
-  button:active {
-    background-color: #0f0f0f69;
-  }
-}
-
-</style>
+<style scoped></style>

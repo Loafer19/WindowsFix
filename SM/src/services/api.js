@@ -10,7 +10,9 @@ async function apiRequest(endpoint, options = {}) {
       '/services/disable': 'disable_service'
     }
 
-    const command = commandMap[endpoint]
+    // Strip query string for command lookup
+    const path = endpoint.split('?')[0]
+    const command = commandMap[path]
     if (!command) {
       throw new Error(`Unknown endpoint: ${endpoint}`)
     }
@@ -25,9 +27,9 @@ async function apiRequest(endpoint, options = {}) {
     if (endpoint.includes('?')) {
       const url = new URL(endpoint, 'http://localhost')
       if (endpoint.includes('/services/reload')) {
-        params.service_name = url.searchParams.get('name')
+        params.serviceName = url.searchParams.get('name')
       } else if (endpoint.includes('/services/disable')) {
-        params.service_name = url.searchParams.get('name')
+        params.serviceName = url.searchParams.get('name')
       }
     }
 

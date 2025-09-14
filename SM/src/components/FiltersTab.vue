@@ -1,16 +1,15 @@
 <template>
   <!-- Service Statistics -->
   <div class="mb-6">
-    <div class="stats stats-vertical lg:stats-horizontal shadow bg-base-200">
-      <div class="stat">
-        <div class="stat-title">Filtered Services</div>
-        <div class="stat-value text-primary">{{ filteredCount }}</div>
-        <div class="stat-desc">
-          of {{ totalCount }} total
-          <span v-if="filteredCount !== totalCount" class="text-success">
-            ({{ Math.round((filteredCount / totalCount) * 100) }}% shown)
-          </span>
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div class="bg-base-200 rounded-lg p-4">
+        <div class="capitalize font-medium">Showing</div>
+        <div class="text-2xl text-warning">{{ filteredCount }}</div>
+        <div class="text-base-content/70">
+          {{ ((filteredCount / totalCount) * 100).toFixed(1) }}% of total
         </div>
+        <progress class="progress progress-warning mt-2" :value="((filteredCount / totalCount) * 100)"
+          max="100"></progress>
       </div>
     </div>
   </div>
@@ -19,20 +18,18 @@
   <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
     <div class="form-control">
       <label for="searchFilter" class="label">
-        <span class="label-text">Search</span>
+        Search
       </label>
-      <input id="searchFilter" v-model="searchQuery" @input="filterServices"
-        class="input input-bordered"
+      <input id="searchFilter" v-model="searchQuery" @input="filterServices" class="input input-bordered"
         placeholder="Name or Display Name" />
     </div>
 
     <div class="form-control">
-      <label for="stateFilter" class="label">
-        <span class="label-text">State</span>
+      <label for="statusFilter" class="label">
+        Status
       </label>
-      <select id="stateFilter" v-model="selectedState" @change="filterServices"
-        class="select select-bordered">
-        <option value="">All States</option>
+      <select id="statusFilter" v-model="selectedStatus" @change="filterServices" class="select select-bordered">
+        <option value="">All Statuses</option>
         <option value="Running">Running</option>
         <option value="Stopped">Stopped</option>
         <option value="Paused">Paused</option>
@@ -41,13 +38,12 @@
     </div>
 
     <div class="form-control">
-      <label for="startModeFilter" class="label">
-        <span class="label-text">Start Mode</span>
+      <label for="startupTypeFilter" class="label">
+        Startup Type
       </label>
-      <select id="startModeFilter" v-model="selectedStartMode" @change="filterServices"
-        class="select select-bordered">
-        <option value="">All Modes</option>
-        <option value="Auto">Auto</option>
+      <select id="startupTypeFilter" v-model="selectedStartupType" @change="filterServices" class="select select-bordered">
+        <option value="">All Startup Types</option>
+        <option value="Automatic">Automatic</option>
         <option value="Manual">Manual</option>
         <option value="Disabled">Disabled</option>
         <option value="System">System</option>
@@ -57,13 +53,11 @@
 
     <div class="form-control">
       <label class="label">
-        <span class="label-text">Actions</span>
+        Actions
       </label>
       <div class="flex gap-2">
-        <Button :text="'Refresh'" @clicked="refresh"
-          class="btn btn-success"></Button>
-        <Button :text="'Clear Filters'" @clicked="clearFilters"
-          class="btn btn-ghost" ></Button>
+        <Button :text="'Refresh'" @clicked="refresh" class="btn btn-success"></Button>
+        <Button :text="'Clear Filters'" @clicked="clearFilters" class="btn btn-ghost"></Button>
       </div>
     </div>
   </div>
@@ -76,8 +70,8 @@ import Button from './Button.vue'
 
 // Reactive data
 const searchQuery = ref('')
-const selectedState = ref('')
-const selectedStartMode = ref('')
+const selectedStatus = ref('')
+const selectedStartupType = ref('')
 
 // Props from parent
 const props = defineProps({
@@ -92,19 +86,19 @@ const props = defineProps({
 })
 
 // Emits for parent communication
-const emit = defineEmits(['update:searchQuery', 'update:selectedState', 'update:selectedStartMode', 'filter'])
+const emit = defineEmits(['update:searchQuery', 'update:selectedStatus', 'update:selectedStartupType', 'filter'])
 
 // Filter services function
 const filterServices = () => {
   emit('filter', {
     searchQuery: searchQuery.value,
-    selectedState: selectedState.value,
-    selectedStartMode: selectedStartMode.value
+    selectedStatus: selectedStatus.value,
+    selectedStartupType: selectedStartupType.value
   })
 }
 
 // Watch for changes and emit filter events
-watch([searchQuery, selectedState, selectedStartMode], () => {
+watch([searchQuery, selectedStatus, selectedStartupType], () => {
   filterServices()
 }, { immediate: false })
 
@@ -121,16 +115,16 @@ const refresh = async () => {
 // Clear filters
 const clearFilters = () => {
   searchQuery.value = ''
-  selectedState.value = ''
-  selectedStartMode.value = ''
+  selectedStatus.value = ''
+  selectedStartupType.value = ''
   filterServices()
 }
 
 // Expose functions for parent access
 defineExpose({
   searchQuery,
-  selectedState,
-  selectedStartMode,
+  selectedStatus,
+  selectedStartupType,
   filterServices,
   clearFilters
 })

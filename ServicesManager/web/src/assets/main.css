@@ -3,7 +3,6 @@
     themes: dark;
 }
 
-
 @plugin "daisyui/theme" {
   name: "dark";
   default: true;
@@ -38,7 +37,6 @@
   --depth: 1;
   --noise: 0;
 }
-
 
 html {
     overflow-y: scroll;
