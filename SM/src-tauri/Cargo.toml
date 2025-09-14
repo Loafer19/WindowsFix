@@ -1,11 +1,9 @@
 [package]
 name = "services-manager"
-version = "1.0.0"
+version = "0.3.1"
 description = "Windows Services Manager - A desktop application for managing Windows services"
-authors = ["Services Manager Team"]
-edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+authors = ["Popelyshyn Ruslan"]
+edition = "2024"
 
 [lib]
 # The `_lib` suffix may seem redundant but it is necessary
