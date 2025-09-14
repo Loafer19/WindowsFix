@@ -1,8 +1,8 @@
 [package]
-name = "sm"
-version = "0.1.0"
-description = "A Tauri App"
-authors = ["you"]
+name = "services-manager"
+version = "1.0.0"
+description = "Windows Services Manager - A desktop application for managing Windows services"
+authors = ["Services Manager Team"]
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -11,7 +11,7 @@ edition = "2021"
 # The `_lib` suffix may seem redundant but it is necessary
 # to make the lib name unique and wouldn't conflict with the bin name.
 # This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
-name = "sm_lib"
+name = "services_manager_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
@@ -22,4 +22,18 @@ tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+scraper = "0.19"
+windows = { version = "0.58", features = [
+  "Win32_Foundation",
+  "Win32_System_Services",
+  "Win32_System_Threading",
+  "Win32_Security",
+  "Win32_System_SystemServices",
+] }
+chrono = { version = "0.4", features = ["serde"] }
+directories = "5.0"
+anyhow = "1.0"
+thiserror = "1.0"
 

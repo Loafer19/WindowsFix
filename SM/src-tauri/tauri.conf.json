@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "sm",
-  "version": "0.1.0",
-  "identifier": "com.sm.app",
+  "productName": "Services Manager",
+  "version": "1.0.0",
+  "identifier": "com.servicesmanager.app",
   "build": {
     "beforeDevCommand": "bun run dev",
     "devUrl": "http://localhost:1420",
@@ -12,9 +12,11 @@
   "app": {
     "windows": [
       {
-        "title": "sm",
-        "width": 800,
-        "height": 600
+        "title": "Windows Services Manager",
+        "width": 1200,
+        "height": 800,
+        "minWidth": 800,
+        "minHeight": 600
       }
     ],
     "security": {
