@@ -1,17 +1,21 @@
 <template>
   <button
-    :class="buttonClass"
+    :class="class"
     :disabled="disabled"
     @click="emit('clicked')"
   >
-    <slot>{{ text }}</slot>
+    <slot v-if="!isLoading">{{ text }}</slot>
+    <span v-else class="loading loading-spinner"></span>
   </button>
 </template>
 
 <script setup>
-import { computed } from 'vue'
 
 const props = defineProps({
+  class: {
+    type: String,
+    default: 'btn btn-primary'
+  },
   text: {
     type: String,
     default: ''
@@ -20,15 +24,12 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
-  class: {
-    type: String,
-    default: ''
+  isLoading: {
+    type: Boolean,
+    default: false
   }
 })
 
 const emit = defineEmits(['clicked'])
 
-const buttonClass = computed(() => {
-  return props.class || 'btn btn-primary'
-})
 </script>

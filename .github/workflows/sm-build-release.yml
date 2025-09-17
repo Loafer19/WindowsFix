@@ -59,6 +59,11 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v1
 
+      - name: Setup Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: 'stable'
+
       - name: Rust setup
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -68,6 +73,9 @@ jobs:
         uses: swatinem/rust-cache@v2
         with:
           workspaces: 'SM/src-tauri -> target'
+
+      - name: Build TUI
+        run: cd Scripts/tui && go build -o ../../WindowsFix-TUI.exe .
 
       - name: Install frontend dependencies
         run: cd SM && bun install
@@ -96,6 +104,12 @@ jobs:
         with:
           name: portable-${{ matrix.platform }}
           path: SM/src-tauri/target/release/ServicesManager_${{ needs.check-version.outputs.version }}-portable.exe
+
+      - name: Upload TUI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tui-${{ matrix.platform }}
+          path: WindowsFix-TUI_${{ needs.check-version.outputs.version }}.exe
 
   release:
     needs: [check-version, build]

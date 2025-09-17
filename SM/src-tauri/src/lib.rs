@@ -28,7 +28,6 @@ pub struct ServiceInfo {
     pub description: Option<String>,
     pub explained: Option<String>,
     pub recommendation: Option<String>,
-    pub source: Option<String>,
     pub error: Option<bool>,
     pub message: Option<String>,
 }
@@ -157,7 +156,6 @@ async fn refresh_services_cache(services_info: &Mutex<HashMap<String, ServiceInf
                         description: None,
                         explained: None,
                         recommendation: None,
-                        source: None,
                         error: Some(true),
                         message: Some("Not loaded".to_string()),
                     });
@@ -301,7 +299,6 @@ async fn get_windows_services() -> Result<Vec<WindowsService>, String> {
                     description: None,
                     explained: None,
                     recommendation: None,
-                    source: None,
                     error: Some(true),
                     message: Some("Not loaded".to_string()),
                 },
@@ -327,7 +324,6 @@ async fn disable_windows_service(service_name: &str) -> Result<WindowsService, S
             description: None,
             explained: None,
             recommendation: None,
-            source: None,
             error: Some(false),
             message: None,
         },
@@ -353,7 +349,6 @@ async fn fetch_service_info(service_name: &str) -> Result<ServiceInfo, String> {
         description: Some(format!("Windows service: {}", service_name)),
         explained: Some(format!("This is a Windows system service named {}. Specific information about this service could not be retrieved from available sources.", service_name)),
         recommendation: Some("Unable to provide specific recommendations for this service. Please research this service carefully before making changes, as disabling system services can affect system stability.".to_string()),
-        source: Some("fallback".to_string()),
         error: Some(false),
         message: None,
     })
@@ -449,7 +444,6 @@ async fn fetch_service_detail(url: &str) -> Result<ServiceInfo, String> {
         description,
         explained,
         recommendation,
-        source: Some("scraped".to_string()),
         error: Some(false),
         message: None,
     })
@@ -497,7 +491,6 @@ async fn fetch_service_info_from_ai(service_name: &str) -> Result<ServiceInfo, S
             description: parsed["description"].as_str().map(|s| s.to_string()),
             explained: parsed["explained"].as_str().map(|s| s.to_string()),
             recommendation: parsed["recommendation"].as_str().map(|s| s.to_string()),
-            source: Some("ai".to_string()),
             error: Some(false),
             message: None,
         })
@@ -508,7 +501,6 @@ async fn fetch_service_info_from_ai(service_name: &str) -> Result<ServiceInfo, S
             description: Some("AI-generated description".to_string()),
             explained: Some("AI-generated explanation".to_string()),
             recommendation: Some("AI-generated recommendation".to_string()),
-            source: Some("ai".to_string()),
             error: Some(false),
             message: None,
         })

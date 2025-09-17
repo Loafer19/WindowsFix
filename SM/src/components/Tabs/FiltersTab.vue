@@ -1,6 +1,5 @@
 <template>
-  <!-- Service Statistics -->
-  <div class="mb-6">
+  <div class="mb-4">
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
       <div class="bg-base-200 rounded-lg p-4">
         <div class="capitalize font-medium">Showing</div>
@@ -41,7 +40,8 @@
       <label for="startupTypeFilter" class="label">
         Startup Type
       </label>
-      <select id="startupTypeFilter" v-model="selectedStartupType" @change="filterServices" class="select select-bordered">
+      <select id="startupTypeFilter" v-model="selectedStartupType" @change="filterServices"
+        class="select select-bordered">
         <option value="">All</option>
         <option value="Automatic">Automatic</option>
         <option value="Manual">Manual</option>
@@ -56,8 +56,12 @@
         Actions
       </label>
       <div class="flex gap-2">
-        <Button :text="'Refresh'" @clicked="refresh" class="btn btn-success"></Button>
-        <Button :text="'Clear Filters'" @clicked="clearFilters" class="btn btn-ghost"></Button>
+        <Button :text="'Refresh'" @clicked="refresh" class="btn btn-info btn-square">
+          <Icon name="refresh" />
+        </Button>
+        <Button :text="'Clear Filters'" @clicked="clearFilters" class="btn btn-neutral btn-square">
+          <Icon name="filterOff" />
+        </Button>
       </div>
     </div>
   </div>
@@ -65,8 +69,9 @@
 
 <script setup>
 import { ref, watch } from 'vue'
-import { refreshServices } from '../services/api.js'
-import Button from './Button.vue'
+import { refreshServices } from '../../services/api.js'
+import Button from '../Button.vue'
+import Icon from '../Icon.vue'
 
 // Reactive data
 const searchQuery = ref('')
