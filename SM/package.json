@@ -17,11 +17,10 @@
   "scripts": {
     "build": "vite build",
     "dev": "vite",
-    "preview": "vite preview",
     "tauri": "tauri",
     "tauri:build": "tauri build",
     "tauri:dev": "tauri dev"
   },
   "type": "module",
-  "version": "0.3.2"
+  "version": "0.4.0"
 }

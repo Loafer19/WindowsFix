@@ -1,6 +1,6 @@
 [package]
 name = "services-manager"
-version = "0.3.2"
+version = "0.4.0"
 description = "Windows Services Manager - A desktop application for managing Windows services"
 authors = ["Popelyshyn Ruslan"]
 edition = "2024"
@@ -22,7 +22,6 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["full"] }
 reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
-scraper = "0.24.0"
 windows = { version = "0.58", features = [
   "Win32_Foundation",
   "Win32_System_Services",
@@ -34,4 +33,5 @@ chrono = { version = "0.4", features = ["serde"] }
 directories = "5.0"
 anyhow = "1.0"
 thiserror = "1.0"
+dotenvy = "0.15"
 

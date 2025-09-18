@@ -6,11 +6,11 @@
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
       <div v-for="(count, status) in servicesByStatus" :key="status" class="bg-base-200 rounded-lg p-4">
         <div class="capitalize font-medium">{{ status }}</div>
-        <div class="text-2xl text-primary">{{ count }}</div>
+        <div class="text-2xl text-secondary">{{ count }}</div>
         <div class="text-base-content/70">
           {{ ((count / totalServices) * 100).toFixed(1) }}% of total
         </div>
-        <progress class="progress progress-primary mt-2" :value="((count / totalServices) * 100)" max="100"></progress>
+        <progress class="progress progress-secondary mt-2" :value="((count / totalServices) * 100)" max="100"></progress>
       </div>
     </div>
   </div>
@@ -22,11 +22,11 @@
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
       <div v-for="(count, type) in servicesByStartupType" :key="type" class=" bg-base-200 rounded-lg p-4">
         <div class="capitalize font-medium">{{ type }}</div>
-        <div class="text-xl text-secondary">{{ count }}</div>
+        <div class="text-xl text-primary">{{ count }}</div>
         <div class="text-base-content/70">
           {{ ((count / totalServices) * 100).toFixed(1) }}% of total
         </div>
-        <progress class="progress progress-secondary mt-2" :value="((count / totalServices) * 100)"
+        <progress class="progress progress-primary mt-2" :value="((count / totalServices) * 100)"
           max="100"></progress>
       </div>
     </div>

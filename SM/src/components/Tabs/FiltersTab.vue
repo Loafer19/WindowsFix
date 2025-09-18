@@ -3,11 +3,11 @@
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
       <div class="bg-base-200 rounded-lg p-4">
         <div class="capitalize font-medium">Showing</div>
-        <div class="text-2xl text-warning">{{ filteredCount }}</div>
+        <div class="text-2xl text-primary">{{ filteredCount }}</div>
         <div class="text-base-content/70">
           {{ ((filteredCount / totalCount) * 100).toFixed(1) }}% of total
         </div>
-        <progress class="progress progress-warning mt-2" :value="((filteredCount / totalCount) * 100)"
+        <progress class="progress progress-primary mt-2" :value="((filteredCount / totalCount) * 100)"
           max="100"></progress>
       </div>
     </div>
@@ -69,7 +69,6 @@
 
 <script setup>
 import { ref, watch } from 'vue'
-import { refreshServices } from '../../services/api.js'
 import Button from '../Button.vue'
 import Icon from '../Icon.vue'
 
@@ -91,7 +90,7 @@ const props = defineProps({
 })
 
 // Emits for parent communication
-const emit = defineEmits(['update:searchQuery', 'update:selectedStatus', 'update:selectedStartupType', 'filter'])
+const emit = defineEmits(['update:searchQuery', 'update:selectedStatus', 'update:selectedStartupType', 'filter', 'refresh'])
 
 // Filter services function
 const filterServices = () => {
@@ -108,13 +107,8 @@ watch([searchQuery, selectedStatus, selectedStartupType], () => {
 }, { immediate: false })
 
 // Refresh services
-const refresh = async () => {
-  try {
-    await refreshServices()
-    // Reload data would be handled by parent
-  } catch (error) {
-    console.error('Failed to refresh services:', error)
-  }
+const refresh = () => {
+  emit('refresh')
 }
 
 // Clear filters
