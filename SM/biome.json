@@ -1,0 +1,29 @@
+{
+    "files": {
+        "includes": ["**", "!**/dist", "!**/src-tauri"]
+    },
+    "formatter": {
+        "enabled": true,
+        "indentStyle": "space",
+        "indentWidth": 4
+    },
+    "javascript": {
+        "formatter": {
+            "quoteStyle": "single",
+            "semicolons": "asNeeded"
+        }
+    },
+    "linter": {
+        "enabled": true,
+        "rules": {
+            "complexity": {
+                "noImportantStyles": "off"
+            },
+            "correctness": {
+                "noUnusedFunctionParameters": "off",
+                "noUnusedImports": "off",
+                "noUnusedVariables": "off"
+            }
+        }
+    }
+}

@@ -37,17 +37,17 @@
 
 <script setup>
 import Button from '../Button.vue'
-import Icon from '../Icon.vue';
+import Icon from '../Icon.vue'
 
 const props = defineProps({
     showModal: {
         type: Boolean,
-        default: false
+        default: false,
     },
     selectedService: {
         type: Object,
-        default: null
-    }
+        default: null,
+    },
 })
 
 defineEmits(['close', 'reload'])

@@ -7,17 +7,17 @@ import { computed } from 'vue'
 import { getIcon } from '../services/icons'
 
 const props = defineProps({
-  name: {
-    type: String,
-    required: true
-  },
-  class: {
-    type: String,
-    default: 'w-6 h-6'
-  }
+    name: {
+        type: String,
+        required: true,
+    },
+    class: {
+        type: String,
+        default: 'w-6 h-6',
+    },
 })
 
 const iconSvg = computed(() => {
-  return getIcon(props.name)
+    return getIcon(props.name)
 })
 </script>

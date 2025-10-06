@@ -99,209 +99,159 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed, watch, markRaw } from 'vue'
-import { loadServices, reloadServiceInfo, disableService, refreshServices } from './services/api.js'
+import { markRaw, onMounted, ref } from 'vue'
 import Button from './components/Button.vue'
 import Icon from './components/Icon.vue'
-import FiltersTab from './components/Tabs/FiltersTab.vue'
-import AnalyticsTab from './components/Tabs/AnalyticsTab.vue'
 import ConfirmDisableModal from './components/Modals/ConfirmDisableModal.vue'
 import ServiceDetailsModal from './components/Modals/ServiceDetailsModal.vue'
-
-const allServices = ref([])
-const filteredServices = ref([])
-const searchQuery = ref('')
-const selectedStatus = ref('')
-const selectedStartupType = ref('')
-const error = ref(false)
-const loading = ref(true)
-const showModal = ref(false)
-const selectedService = ref(null)
-const showDetailsModal = ref(false)
-const selectedServiceForDetails = ref(null)
+import AnalyticsTab from './components/Tabs/AnalyticsTab.vue'
+import FiltersTab from './components/Tabs/FiltersTab.vue'
+import { useAnalytics } from './composables/useAnalytics.js'
+import { useFiltering } from './composables/useFiltering.js'
+import { useModals } from './composables/useModals.js'
+import {
+    disableService,
+    loadServices,
+    refreshServices,
+    reloadServiceInfo,
+} from './services/api.js'
 
 // Tab system
 const tabs = ref([
-  {
-    id: 'filters',
-    name: 'Filters',
-    component: markRaw(FiltersTab),
-    icon: 'equalizer'
-  },
-  {
-    id: 'analytics',
-    name: 'Analytics',
-    component: markRaw(AnalyticsTab),
-    icon: 'fileChart'
-  }
+    {
+        id: 'filters',
+        name: 'Filters',
+        component: markRaw(FiltersTab),
+        icon: 'equalizer',
+    },
+    {
+        id: 'analytics',
+        name: 'Analytics',
+        component: markRaw(AnalyticsTab),
+        icon: 'fileChart',
+    },
 ])
 const activeTab = ref(markRaw(FiltersTab))
 
-// Analytics computed properties
-const totalServices = computed(() => allServices.value.length)
-const servicesByStatus = computed(() => {
-  const counts = {}
-  allServices.value.forEach(service => {
-    counts[service.status] = (counts[service.status] || 0) + 1
-  })
-  return counts
-})
+const allServices = ref([])
+const error = ref(false)
+const loading = ref(true)
 
-const servicesByStartupType = computed(() => {
-  const counts = {}
-  allServices.value.forEach(service => {
-    counts[service.startupType] = (counts[service.startupType] || 0) + 1
-  })
-  return counts
-})
+const { totalServices, servicesByStatus, servicesByStartupType } =
+    useAnalytics(allServices)
+const { filteredServices, filterServices, handleFilter } =
+    useFiltering(allServices)
+const {
+    showModal,
+    selectedService,
+    showDetailsModal,
+    selectedServiceForDetails,
+    openModal,
+    confirmDisable: confirmDisableModal,
+    openModalForDetails,
+} = useModals()
+
+const confirmDisable = () => confirmDisableModal(disable)
 
 onMounted(async () => {
-  await loadServicesData()
+    await loadServicesData()
 })
 
 const loadServicesData = async () => {
-  try {
-    loading.value = true
-    error.value = false
-    const data = await loadServices()
-    allServices.value = data
-    filterServices()
-  } catch (err) {
-    console.error('Failed to load services:', err)
-    error.value = true
-  } finally {
-    loading.value = false
-  }
+    try {
+        loading.value = true
+        error.value = false
+        const data = await loadServices()
+        allServices.value = data
+        filterServices()
+    } catch (err) {
+        console.error('Failed to load services:', err)
+        error.value = true
+    } finally {
+        loading.value = false
+    }
 }
 
 const refresh = async () => {
-  try {
-    loading.value = true
-    await refreshServices()
-    await loadServicesData()
-  } catch (err) {
-    console.error('Failed to refresh services:', err)
-    // Keep existing data on refresh failure
-    loading.value = false
-  }
+    try {
+        loading.value = true
+        await refreshServices()
+        await loadServicesData()
+    } catch (err) {
+        console.error('Failed to refresh services:', err)
+        // Keep existing data on refresh failure
+        loading.value = false
+    }
 }
 
 const reloadInfo = async (service) => {
-  service.isReloading = true
+    service.isReloading = true
 
-  try {
-    const data = await reloadServiceInfo(service.name)
-    service.info = data
+    try {
+        const data = await reloadServiceInfo(service.name)
+        service.info = data
 
-    // Also update the original service in allServices array
-    const originalService = allServices.value.find(s => s.name === service.name)
-    if (originalService) {
-      originalService.info = data
+        // Also update the original service in allServices array
+        const originalService = allServices.value.find(
+            (s) => s.name === service.name,
+        )
+        if (originalService) {
+            originalService.info = data
+        }
+
+        console.log(
+            `Successfully reloaded information for service: ${service.name}`,
+        )
+    } catch (error) {
+        console.error('Failed to reload service info:', error)
+        service.info = { error: true, message: 'Failed to reload information' }
+
+        // Also update the original service in allServices array
+        const originalService = allServices.value.find(
+            (s) => s.name === service.name,
+        )
+        if (originalService) {
+            originalService.info = service.info
+        }
+    } finally {
+        service.isReloading = false
     }
-
-    console.log(`Successfully reloaded information for service: ${service.name}`)
-  } catch (error) {
-    console.error('Failed to reload service info:', error)
-    service.info = { error: true, message: 'Failed to reload information' }
-
-    // Also update the original service in allServices array
-    const originalService = allServices.value.find(s => s.name === service.name)
-    if (originalService) {
-      originalService.info = service.info
-    }
-  } finally {
-    service.isReloading = false
-  }
 }
 
 const disable = async (service) => {
-  service.isDisabling = true
+    service.isDisabling = true
 
-  try {
-    const data = await disableService(service.name)
-    Object.assign(service, data)
-  } catch (error) {
-    console.error('Failed to disable service:', error)
-    service.info = { error: true, message: 'Failed to disable service' }
-  } finally {
-    service.isDisabling = false
-  }
-}
-
-const openModal = (service) => {
-  selectedService.value = service
-  showModal.value = true
-}
-
-const confirmDisable = () => {
-  if (selectedService.value) {
-    disable(selectedService.value)
-    showModal.value = false
-    selectedService.value = null
-  }
-}
-
-const openModalForDetails = (service) => {
-  selectedServiceForDetails.value = service
-  showDetailsModal.value = true
-}
-
-const filterServices = () => {
-  let filtered = [...allServices.value]
-
-  if (selectedStatus.value) {
-    filtered = filtered.filter((service) => service.status === selectedStatus.value)
-  }
-
-  if (selectedStartupType.value) {
-    filtered = filtered.filter((service) => service.startupType === selectedStartupType.value)
-  }
-
-  if (searchQuery.value) {
-    const query = searchQuery.value.toLowerCase()
-    filtered = filtered.filter(
-      (service) =>
-        service.name.toLowerCase().includes(query) ||
-        service.displayName.toLowerCase().includes(query)
-    )
-  }
-
-  filteredServices.value = filtered
+    try {
+        const data = await disableService(service.name)
+        Object.assign(service, data)
+    } catch (error) {
+        console.error('Failed to disable service:', error)
+        service.info = { error: true, message: 'Failed to disable service' }
+    } finally {
+        service.isDisabling = false
+    }
 }
 
 const getStatusBadgeClass = (status) => {
-  const classes = {
-    'Running': 'badge-error',
-    'Stopped': 'badge-neutral',
-    'Paused': 'badge-warning',
-    'Pending': 'badge-warning'
-  }
-  return 'badge ' + (classes[status] || 'badge-neutral')
+    const classes = {
+        Running: 'badge-error',
+        Stopped: 'badge-neutral',
+        Paused: 'badge-warning',
+        Pending: 'badge-warning',
+    }
+    return 'badge ' + (classes[status] || 'badge-neutral')
 }
 
 const getStartupTypeBadgeClass = (startupType) => {
-  const classes = {
-    'Automatic': 'badge-error',
-    'Manual': 'badge-warning',
-    'Disabled': 'badge-neutral',
-    'System': 'badge-info',
-    'Boot': 'badge-info'
-  }
-  return 'badge ' + (classes[startupType] || 'badge-neutral')
+    const classes = {
+        Automatic: 'badge-error',
+        Manual: 'badge-warning',
+        Disabled: 'badge-neutral',
+        System: 'badge-info',
+        Boot: 'badge-info',
+    }
+    return 'badge ' + (classes[startupType] || 'badge-neutral')
 }
-
-// Handle filter updates from FiltersTab
-const handleFilter = (filterData) => {
-  searchQuery.value = filterData.searchQuery
-  selectedStatus.value = filterData.selectedStatus
-  selectedStartupType.value = filterData.selectedStartupType
-  filterServices()
-}
-
-// Watch for filter changes
-watch([searchQuery, selectedStatus, selectedStartupType], () => {
-  filterServices()
-})
 </script>
 
 <style scoped>

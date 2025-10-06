@@ -10,26 +10,24 @@
 </template>
 
 <script setup>
-
 const props = defineProps({
-  class: {
-    type: String,
-    default: 'btn btn-primary'
-  },
-  text: {
-    type: String,
-    default: ''
-  },
-  disabled: {
-    type: Boolean,
-    default: false
-  },
-  isLoading: {
-    type: Boolean,
-    default: false
-  }
+    class: {
+        type: String,
+        default: 'btn btn-primary',
+    },
+    text: {
+        type: String,
+        default: '',
+    },
+    disabled: {
+        type: Boolean,
+        default: false,
+    },
+    isLoading: {
+        type: Boolean,
+        default: false,
+    },
 })
 
 const emit = defineEmits(['clicked'])
-
 </script>

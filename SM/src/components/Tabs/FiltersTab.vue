@@ -79,52 +79,62 @@ const selectedStartupType = ref('')
 
 // Props from parent
 const props = defineProps({
-  filteredCount: {
-    type: Number,
-    default: 0
-  },
-  totalCount: {
-    type: Number,
-    default: 0
-  }
+    filteredCount: {
+        type: Number,
+        default: 0,
+    },
+    totalCount: {
+        type: Number,
+        default: 0,
+    },
 })
 
 // Emits for parent communication
-const emit = defineEmits(['update:searchQuery', 'update:selectedStatus', 'update:selectedStartupType', 'filter', 'refresh'])
+const emit = defineEmits([
+    'update:searchQuery',
+    'update:selectedStatus',
+    'update:selectedStartupType',
+    'filter',
+    'refresh',
+])
 
 // Filter services function
 const filterServices = () => {
-  emit('filter', {
-    searchQuery: searchQuery.value,
-    selectedStatus: selectedStatus.value,
-    selectedStartupType: selectedStartupType.value
-  })
+    emit('filter', {
+        searchQuery: searchQuery.value,
+        selectedStatus: selectedStatus.value,
+        selectedStartupType: selectedStartupType.value,
+    })
 }
 
 // Watch for changes and emit filter events
-watch([searchQuery, selectedStatus, selectedStartupType], () => {
-  filterServices()
-}, { immediate: false })
+watch(
+    [searchQuery, selectedStatus, selectedStartupType],
+    () => {
+        filterServices()
+    },
+    { immediate: false },
+)
 
 // Refresh services
 const refresh = () => {
-  emit('refresh')
+    emit('refresh')
 }
 
 // Clear filters
 const clearFilters = () => {
-  searchQuery.value = ''
-  selectedStatus.value = ''
-  selectedStartupType.value = ''
-  filterServices()
+    searchQuery.value = ''
+    selectedStatus.value = ''
+    selectedStartupType.value = ''
+    filterServices()
 }
 
 // Expose functions for parent access
 defineExpose({
-  searchQuery,
-  selectedStatus,
-  selectedStartupType,
-  filterServices,
-  clearFilters
+    searchQuery,
+    selectedStatus,
+    selectedStartupType,
+    filterServices,
+    clearFilters,
 })
 </script>

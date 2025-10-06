@@ -13,14 +13,14 @@
 
 <script setup>
 const props = defineProps({
-  showModal: {
-    type: Boolean,
-    default: false
-  },
-  selectedService: {
-    type: Object,
-    default: null
-  }
+    showModal: {
+        type: Boolean,
+        default: false,
+    },
+    selectedService: {
+        type: Object,
+        default: null,
+    },
 })
 
 defineEmits(['close', 'confirm'])
