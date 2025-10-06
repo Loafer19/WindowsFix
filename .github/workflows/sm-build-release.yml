@@ -38,18 +38,12 @@ jobs:
     strategy:
       matrix:
         include:
-          - platform: 'windows-latest'
+          - platform: 'windows-2022'
             args: ''
     runs-on: ${{ matrix.platform }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Install dependencies (ubuntu only)
-        if: matrix.platform == 'ubuntu-22.04'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.0-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -64,10 +58,16 @@ jobs:
         with:
           go-version: 'stable'
 
+      - name: Go cache
+        uses: actions/cache@v4
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('Scripts/tui/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
       - name: Rust setup
         uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
@@ -77,13 +77,27 @@ jobs:
       - name: Build TUI
         run: cd Scripts/tui && go build -o ../../WindowsFix-TUI.exe .
 
+      - name: Rename TUI executable
+        run: |
+          move WindowsFix-TUI.exe WindowsFix-TUI_${{ needs.check-version.outputs.version }}.exe
+        shell: cmd
+
       - name: Install frontend dependencies
         run: cd SM && bun install
+
+      - name: Create .env file for build
+        run: |
+          echo "GROK_API_KEY=${{ secrets.GROK_API_KEY }}" > SM/.env
+          echo "GROK_API_TIMEOUT=${{ secrets.GROK_API_TIMEOUT || '15' }}" >> SM/.env
+          echo "GROK_MAX_TOKENS=${{ secrets.GROK_MAX_TOKENS || '1000' }}" >> SM/.env
 
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
+          GROK_API_TIMEOUT: ${{ secrets.GROK_API_TIMEOUT || '15' }}
+          GROK_MAX_TOKENS: ${{ secrets.GROK_MAX_TOKENS || '1000' }}
         with:
           projectPath: SM
           args: --bundles nsis

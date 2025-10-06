@@ -18,12 +18,10 @@
         </div>
       </div>
 
-      <div v-if="error" class="alert alert-error shadow-lg mb-6">
+      <div v-if="error" class="alert alert-error">
         <Icon name="alarmWarning" />
-        <div>
-          <h3 class="font-bold">Failed to load services data</h3>
-          <div class="text-xs">Please try refreshing the page :(</div>
-        </div>
+        <h3 class="font-bold">Failed to load services data</h3>
+        <div class="text-xs">Please try refreshing the page :(</div>
       </div>
 
       <div v-else-if="loading" class="card bg-base-100 card-border border-base-300">

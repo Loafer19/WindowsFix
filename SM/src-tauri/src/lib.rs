@@ -10,90 +10,34 @@ use tokio::time::timeout;
 use windows::core::PCWSTR;
 use windows::Win32::System::Services::*;
 
+fn load_services() -> HashMap<String, ServiceInfo> {
+    // Try to load from services.json relative to src-tauri directory
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(src_tauri_dir) = exe_path.parent().and_then(|p| p.parent()) {
+            let json_path = src_tauri_dir.join("services.json");
+            if let Ok(content) = fs::read_to_string(json_path) {
+                if let Ok(data) = serde_json::from_str::<HashMap<String, ServiceInfo>>(&content) {
+                    println!("Loaded {} services from services.json", data.len());
+                    return data;
+                }
+            }
+        }
+    }
+
+    // Fallback to minimal hardcoded defaults if JSON loading fails
+    println!("Failed to load services from JSON, using minimal fallback");
+    let mut defaults = HashMap::new();
+    defaults.insert("wuauserv".to_string(), ServiceInfo {
+        description: Some("Windows Update service".to_string()),
+        explained: Some("Manages Windows updates and security patches.".to_string()),
+        recommendation: Some("• Keep Automatic for security\n• Critical system service".to_string()),
+    });
+    defaults
+}
+
 // Service information database for common Windows services
 fn get_default_service_info(service_name: &str) -> ServiceInfo {
-    let defaults: HashMap<&str, ServiceInfo> = [
-        ("wuauserv", ServiceInfo {
-            url: None,
-            description: Some("Windows Update service that enables the detection, download, and installation of updates for Windows and other programs.".to_string()),
-            explained: Some("The Windows Update service (wuauserv) is responsible for managing updates to the Windows operating system and installed applications. It checks for available updates from Microsoft servers, downloads them, and coordinates their installation. This service is essential for keeping the system secure and up-to-date with the latest patches and improvements.".to_string()),
-            recommendation: Some("Keep this service running on Automatic startup. Windows Update is critical for system security. Only disable temporarily if experiencing update-related issues, but re-enable as soon as possible.".to_string()),
-            error: Some(false),
-            message: None,
-        }),
-        ("spooler", ServiceInfo {
-            url: None,
-            description: Some("Print Spooler service that manages print jobs and printer drivers.".to_string()),
-            explained: Some("The Print Spooler service manages all print jobs sent to printers connected to the computer. It acts as a queue for print jobs, allowing multiple documents to be printed in sequence. The service also manages printer drivers and handles communication between applications and printers.".to_string()),
-            recommendation: Some("Set to Manual startup if you don't use printers regularly. This service only needs to run when printing. If you have network printers or frequently print documents, keep it on Automatic.".to_string()),
-            error: Some(false),
-            message: None,
-        }),
-        ("audiosrv", ServiceInfo {
-            url: None,
-            description: Some("Windows Audio service that manages audio devices and system sounds.".to_string()),
-            explained: Some("The Windows Audio service manages all audio devices connected to the system, including speakers, microphones, and other audio hardware. It handles audio playback, recording, and system sound effects. This service is essential for any audio functionality on Windows.".to_string()),
-            recommendation: Some("Keep on Automatic startup. This service is required for all audio functionality. Only disable if you have no audio devices or are troubleshooting audio issues.".to_string()),
-            error: Some(false),
-            message: None,
-        }),
-        ("eventlog", ServiceInfo {
-            url: None,
-            description: Some("Windows Event Log service that records system and application events.".to_string()),
-            explained: Some("The Event Log service collects and stores event messages from Windows components and applications. These logs are crucial for troubleshooting system issues, monitoring system health, and auditing system activity. Event logs contain information about system errors, warnings, and informational messages.".to_string()),
-            recommendation: Some("Keep on Automatic startup. Event logging is essential for system diagnostics and troubleshooting. This service should never be disabled as it provides critical system monitoring capabilities.".to_string()),
-            error: Some(false),
-            message: None,
-        }),
-        ("dnscache", ServiceInfo {
-            url: None,
-            description: Some("DNS Client service that resolves domain names to IP addresses.".to_string()),
-            explained: Some("The DNS Client service caches Domain Name System (DNS) name resolutions. When you visit a website, this service translates human-readable domain names (like google.com) into IP addresses that computers use to communicate. The cache improves performance by storing recent DNS lookups.".to_string()),
-            recommendation: Some("Keep on Automatic startup. DNS resolution is fundamental to internet connectivity. Only disable for specific troubleshooting scenarios, but re-enable immediately after.".to_string()),
-            error: Some(false),
-            message: None,
-        }),
-        ("themes", ServiceInfo {
-            url: None,
-            description: Some("Themes service that manages desktop themes and visual styles.".to_string()),
-            explained: Some("The Themes service manages the visual appearance of Windows, including desktop wallpapers, window colors, sounds, and screen savers. It handles theme switching and ensures consistent visual styling across the operating system.".to_string()),
-            recommendation: Some("Can be set to Manual startup if you don't use themes or visual customizations. However, keeping it on Automatic provides better visual consistency and theme support.".to_string()),
-            error: Some(false),
-            message: None,
-        }),
-        ("sysmain", ServiceInfo {
-            url: None,
-            description: Some("SysMain service that maintains and improves system performance.".to_string()),
-            explained: Some("SysMain (formerly SuperFetch) analyzes system usage patterns and preloads frequently used applications and data into memory. This service helps improve system responsiveness by anticipating user actions and preparing resources in advance.".to_string()),
-            recommendation: Some("Keep on Automatic for better system performance. This service helps Windows run more smoothly by optimizing memory usage. Only disable if you suspect it's causing performance issues.".to_string()),
-            error: Some(false),
-            message: None,
-        }),
-        ("wscsvc", ServiceInfo {
-            url: None,
-            description: Some("Security Center service that monitors security settings and health.".to_string()),
-            explained: Some("The Security Center service monitors the status of Windows Security features including antivirus software, firewall, automatic updates, and other security settings. It provides notifications about security issues and helps maintain overall system security posture.".to_string()),
-            recommendation: Some("Keep on Automatic startup. Security monitoring is crucial for system protection. This service helps ensure your security software is functioning properly.".to_string()),
-            error: Some(false),
-            message: None,
-        }),
-        ("bits", ServiceInfo {
-            url: None,
-            description: Some("Background Intelligent Transfer Service for efficient data transfers.".to_string()),
-            explained: Some("BITS transfers files between clients and servers in the background using idle network bandwidth. It's used by Windows Update, Microsoft Store, and other Microsoft services for downloading updates and content without interfering with foreground network activity.".to_string()),
-            recommendation: Some("Keep on Manual startup. BITS only runs when needed for background transfers. This is the recommended setting to conserve system resources while maintaining functionality.".to_string()),
-            error: Some(false),
-            message: None,
-        }),
-        ("cryptsvc", ServiceInfo {
-            url: None,
-            description: Some("Cryptographic Services that provides cryptographic operations.".to_string()),
-            explained: Some("The Cryptographic Services provides three management services: Catalog Database Service, Protected Root Service, and Key Service. These services support cryptographic operations and are required for Windows Update, Microsoft Store, and other system functions that require digital signatures or encryption.".to_string()),
-            recommendation: Some("Keep on Automatic startup. Cryptographic services are essential for system security and many Windows features. Only disable for specific troubleshooting scenarios.".to_string()),
-            error: Some(false),
-            message: None,
-        }),
-    ].into_iter().collect();
+    let defaults = load_services();
 
     // Check for exact match first
     if let Some(info) = defaults.get(service_name) {
@@ -110,12 +54,9 @@ fn get_default_service_info(service_name: &str) -> ServiceInfo {
 
     // Return generic info if no match found
     ServiceInfo {
-        url: None,
         description: Some(format!("Windows service: {}", service_name)),
-        explained: Some(format!("This is a Windows system service named '{}'. It performs specific functions within the Windows operating system. For detailed information about this service, please check Microsoft's official documentation or use the reload function to get AI-generated explanations.", service_name)),
-        recommendation: Some("Before making changes to this service, research its specific function. Many Windows services are essential for system stability. Consider the impact on system functionality before disabling any service.".to_string()),
-        error: Some(false),
-        message: None,
+        explained: Some(format!("Windows system service '{}'. Performs specific OS functions. Use reload for AI-generated detailed explanation.", service_name)),
+        recommendation: Some("• Research service function before changes\n• Many services are essential for stability\n• Consider functionality impact before disabling\n• Use reload button for detailed AI analysis".to_string()),
     }
 }
 
@@ -133,12 +74,9 @@ pub struct WindowsService {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServiceInfo {
-    pub url: Option<String>,
     pub description: Option<String>,
     pub explained: Option<String>,
     pub recommendation: Option<String>,
-    pub error: Option<bool>,
-    pub message: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -229,7 +167,7 @@ async fn reload_service_info(service_name: String, state: State<'_, AppState>) -
             // Update persistent storage
             let mut services_info = state.services_info.lock().unwrap();
             services_info.insert(service_name.clone(), info.clone());
-            save_services_info(&services_info);
+            // Note: Not saving to JSON on reload to avoid frequent writes
 
             println!("Successfully reloaded info for service: {}", service_name);
             Ok(info)
@@ -252,20 +190,24 @@ async fn reload_service_info(service_name: String, state: State<'_, AppState>) -
 
 #[tauri::command]
 async fn disable_service(service_name: String, state: State<'_, AppState>) -> Result<ServiceResponse, String> {
-    match disable_windows_service(&service_name).await {
-        Ok(updated_service) => {
-            // Update cache
-            let mut cache = state.services_cache.lock().unwrap();
-            if let Some(service) = cache.data.iter_mut().find(|s| s.name == service_name) {
-                service.status = updated_service.status.clone();
-                service.startup_type = updated_service.startup_type.clone();
-            }
+    let service_name_clone = service_name.clone();
+    match tokio::task::spawn_blocking(move || disable_windows_service(&service_name_clone)).await {
+        Ok(result) => match result {
+            Ok(updated_service) => {
+                // Update cache
+                let mut cache = state.services_cache.lock().unwrap();
+                if let Some(service) = cache.data.iter_mut().find(|s| s.name == service_name) {
+                    service.status = updated_service.status.clone();
+                    service.startup_type = updated_service.startup_type.clone();
+                }
 
-            Ok(ServiceResponse {
-                service: updated_service,
-            })
+                Ok(ServiceResponse {
+                    service: updated_service,
+                })
+            },
+            Err(e) => Err(format!("Failed to disable service: {}", e)),
         },
-        Err(e) => Err(format!("Failed to disable service: {}", e)),
+        Err(e) => Err(format!("Task panicked: {:?}", e)),
     }
 }
 
@@ -433,12 +375,9 @@ async fn get_windows_services() -> Result<Vec<WindowsService>, String> {
                 status,
                 startup_type,
                 info: ServiceInfo {
-                    url: None,
                     description: None,
                     explained: None,
                     recommendation: None,
-                    error: Some(true),
-                    message: Some("Not loaded".to_string()),
                 },
             });
         }
@@ -448,24 +387,109 @@ async fn get_windows_services() -> Result<Vec<WindowsService>, String> {
     }
 }
 
-async fn disable_windows_service(service_name: &str) -> Result<WindowsService, String> {
-    // Use Windows API to disable service
-    // This is a placeholder - implement actual Windows service control
+fn disable_windows_service(service_name: &str) -> Result<WindowsService, String> {
+    unsafe {
+        // Open SCM
+        let scm = OpenSCManagerW(None, None, SC_MANAGER_CONNECT).map_err(|e| format!("Failed to open SCM: {:?}", e))?;
 
-    Ok(WindowsService {
-        name: service_name.to_string(),
-        display_name: format!("{} (Disabled)", service_name),
-        status: "Stopped".to_string(),
-        startup_type: "Disabled".to_string(),
-        info: ServiceInfo {
-            url: None,
-            description: None,
-            explained: None,
-            recommendation: None,
-            error: Some(false),
-            message: None,
-        },
-    })
+        // Open the service
+        let service_name_wide = service_name.to_string().encode_utf16().chain(std::iter::once(0)).collect::<Vec<u16>>();
+        let service = OpenServiceW(scm, PCWSTR::from_raw(service_name_wide.as_ptr()), SERVICE_CHANGE_CONFIG | SERVICE_STOP | SERVICE_QUERY_STATUS | SERVICE_QUERY_CONFIG).map_err(|e| format!("Failed to open service: {:?}", e))?;
+
+        // Stop the service if running
+        let mut status = SERVICE_STATUS::default();
+        if QueryServiceStatus(service, &mut status).is_ok() && status.dwCurrentState == SERVICE_RUNNING {
+            println!("Stopping service {}", service_name);
+            let stop_result = ControlService(service, SERVICE_CONTROL_STOP, &mut status);
+            if stop_result.is_ok() {
+                println!("Service {} stop command sent", service_name);
+            } else {
+                println!("Failed to send stop command to {}: {:?}", service_name, stop_result);
+            }
+        } else {
+            println!("Service {} is not running or query failed", service_name);
+        }
+
+        // Change startup type to disabled
+        println!("Disabling service {}", service_name);
+        let result = ChangeServiceConfigW(
+            service,
+            SERVICE_WIN32_OWN_PROCESS,
+            SERVICE_DISABLED,
+            SERVICE_ERROR_NORMAL,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+
+        if result.is_ok() {
+            println!("Service {} disabled successfully", service_name);
+        } else {
+            println!("Failed to disable service {}: {:?}", service_name, result);
+        }
+
+        result.map_err(|e| format!("Failed to disable service: {:?}", e))?;
+
+        // Query updated status
+        let mut status = SERVICE_STATUS::default();
+        let status_str = if QueryServiceStatus(service, &mut status).is_ok() {
+            let s = match status.dwCurrentState {
+                SERVICE_RUNNING => "Running",
+                SERVICE_STOPPED => "Stopped",
+                SERVICE_START_PENDING => "Start Pending",
+                SERVICE_STOP_PENDING => "Stop Pending",
+                SERVICE_PAUSE_PENDING => "Pause Pending",
+                SERVICE_PAUSED => "Paused",
+                _ => "Unknown",
+            }.to_string();
+            println!("Service {} status: {}", service_name, s);
+            s
+        } else {
+            println!("Failed to query status for {}", service_name);
+            "Unknown".to_string()
+        };
+
+        // Query updated startup type
+        let mut config_size: u32 = 0;
+        let _ = QueryServiceConfigW(service, None, 0, &mut config_size);
+        let mut config_buffer = vec![0u8; config_size as usize];
+        let startup_type_str = if QueryServiceConfigW(service, Some(config_buffer.as_mut_ptr() as *mut _), config_size, &mut config_size).is_ok() {
+            let config = &*(config_buffer.as_ptr() as *const QUERY_SERVICE_CONFIGW);
+            let st = match config.dwStartType {
+                SERVICE_AUTO_START => "Automatic",
+                SERVICE_DEMAND_START => "Manual",
+                SERVICE_DISABLED => "Disabled",
+                SERVICE_BOOT_START => "Boot",
+                SERVICE_SYSTEM_START => "System",
+                _ => "Unknown",
+            }.to_string();
+            println!("Service {} startup type: {}", service_name, st);
+            st
+        } else {
+            println!("Failed to query config for {}", service_name);
+            "Unknown".to_string()
+        };
+
+        CloseServiceHandle(service).ok();
+        CloseServiceHandle(scm).ok();
+
+        // Return updated service info
+        Ok(WindowsService {
+            name: service_name.to_string(),
+            display_name: service_name.to_string(), // Keep original display name
+            status: status_str,
+            startup_type: startup_type_str,
+            info: ServiceInfo {
+                description: None,
+                explained: None,
+                recommendation: None,
+            },
+        })
+    }
 }
 
 async fn fetch_service_info(service_name: &str) -> Result<ServiceInfo, String> {
@@ -478,7 +502,6 @@ async fn fetch_service_info(service_name: &str) -> Result<ServiceInfo, String> {
     // Final fallback - use comprehensive default database
     Ok(get_default_service_info(service_name))
 }
-
 
 async fn fetch_service_info_from_ai(service_name: &str) -> Result<ServiceInfo, String> {
     // Get API key from environment
@@ -502,7 +525,7 @@ async fn fetch_service_info_from_ai(service_name: &str) -> Result<ServiceInfo, S
         .parse()
         .unwrap_or(1000);
 
-    let prompt = format!("What is the Windows service \"{}\"?\n\nPlease provide:\n1. A brief description of what this service does\n2. A detailed explanation of its purpose and functionality\n3. A recommendation on whether users should disable it and why\n\nFormat your response as JSON with keys: \"description\", \"explained\", \"recommendation\"", service_name);
+    let prompt = format!("What is the Windows service \"{}\"?\n\nPlease provide a JSON response with exactly these three keys:\n- \"description\": A brief description of what this service does\n- \"explained\": A concise explanation in 2-3 lines of its purpose and functionality\n- \"recommendation\": A bullet-point list covering whether to disable it, what would be affected, and safe disabling scenarios\n\nExample format:\n{{\n  \"description\": \"Brief description here\",\n  \"explained\": \"Concise explanation here\",\n  \"recommendation\": \"• Point 1\\n• Point 2\\n• Point 3\"\n}}\n\nReturn only valid JSON, no additional text.", service_name);
 
     println!("Making AI request for service: {}", service_name);
 
@@ -547,12 +570,9 @@ async fn fetch_service_info_from_ai(service_name: &str) -> Result<ServiceInfo, S
     if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(ai_response) {
         println!("Successfully parsed AI response as JSON");
         Ok(ServiceInfo {
-            url: None,
             description: parsed["description"].as_str().map(|s| s.to_string()),
             explained: parsed["explained"].as_str().map(|s| s.to_string()),
             recommendation: parsed["recommendation"].as_str().map(|s| s.to_string()),
-            error: Some(false),
-            message: None,
         })
     } else {
         // Fallback: extract information from text response
@@ -562,12 +582,9 @@ async fn fetch_service_info_from_ai(service_name: &str) -> Result<ServiceInfo, S
         let recommendation = extract_field_from_text(ai_response, "recommendation");
 
         Ok(ServiceInfo {
-            url: None,
             description: description.or_else(|| Some("AI-generated description".to_string())),
             explained: explained.or_else(|| Some("AI-generated explanation".to_string())),
             recommendation: recommendation.or_else(|| Some("AI-generated recommendation".to_string())),
-            error: Some(false),
-            message: None,
         })
     }
 }
@@ -601,80 +618,47 @@ fn extract_field_from_text(text: &str, field: &str) -> Option<String> {
 }
 
 fn save_services_info(services_info: &HashMap<String, ServiceInfo>) {
-    if let Some(app_dir) = directories::ProjectDirs::from("com", "servicesmanager", "app") {
-        let data_dir = app_dir.data_dir();
-        match fs::create_dir_all(data_dir) {
-            Ok(_) => {
-                let file_path = data_dir.join("services-info.json");
-                match serde_json::to_string_pretty(services_info) {
-                    Ok(json) => {
-                        if let Err(e) = fs::write(&file_path, json) {
-                            eprintln!("Failed to write services info to file: {}", e);
-                        } else {
-                            println!("Successfully saved {} service info entries", services_info.len());
-                        }
-                    },
-                    Err(e) => eprintln!("Failed to serialize services info: {}", e),
-                }
-            },
-            Err(e) => eprintln!("Failed to create data directory: {}", e),
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(src_tauri_dir) = exe_path.parent().and_then(|p| p.parent()) {
+            let file_path = src_tauri_dir.join("services.json");
+            match serde_json::to_string_pretty(services_info) {
+                Ok(json) => {
+                    if let Err(e) = fs::write(&file_path, json) {
+                        eprintln!("Failed to write services info to file: {}", e);
+                    } else {
+                        println!("Successfully saved {} service info entries to services.json", services_info.len());
+                    }
+                },
+                Err(e) => eprintln!("Failed to serialize services info: {}", e),
+            }
+        } else {
+            eprintln!("Failed to determine src-tauri directory for data storage");
         }
     } else {
-        eprintln!("Failed to get application directory for data storage");
+        eprintln!("Failed to get executable path for data storage");
     }
 }
 
 fn load_services_info() -> HashMap<String, ServiceInfo> {
-    if let Some(app_dir) = directories::ProjectDirs::from("com", "servicesmanager", "app") {
-        let data_dir = app_dir.data_dir();
-        let file_path = data_dir.join("services-info.json");
-
-        // Try to load from user data directory first
-        if file_path.exists() {
-            match fs::read_to_string(&file_path) {
-                Ok(content) => {
-                    match serde_json::from_str::<HashMap<String, ServiceInfo>>(&content) {
-                        Ok(data) => {
-                            println!("Loaded {} service info entries from user data", data.len());
-                            return data;
-                        },
-                        Err(e) => eprintln!("Failed to parse services info JSON: {}", e),
-                    }
-                },
-                Err(e) => eprintln!("Failed to read services info file: {}", e),
-            }
-        }
-
-        // Try to load from bundled location as fallback
-        if let Ok(current_dir) = std::env::current_dir() {
-            let bundled_path = current_dir.join("ServicesManager/server/public/services-info.json");
-            if bundled_path.exists() {
-                match fs::read_to_string(&bundled_path) {
+    // Load from services.json relative to src-tauri directory
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(src_tauri_dir) = exe_path.parent().and_then(|p| p.parent()) {
+            let file_path = src_tauri_dir.join("services.json");
+            if file_path.exists() {
+                match fs::read_to_string(&file_path) {
                     Ok(content) => {
                         match serde_json::from_str::<HashMap<String, ServiceInfo>>(&content) {
                             Ok(data) => {
-                                println!("Loaded {} service info entries from bundled data", data.len());
-                                // Save to user data directory for future use
-                                if fs::create_dir_all(data_dir).is_ok() {
-                                    if let Ok(json) = serde_json::to_string_pretty(&data) {
-                                        if let Err(e) = fs::write(&file_path, json) {
-                                            eprintln!("Failed to save bundled data to user directory: {}", e);
-                                        } else {
-                                            println!("Saved bundled data to user directory");
-                                        }
-                                    }
-                                }
+                                println!("Loaded {} service info entries from services.json", data.len());
                                 return data;
                             },
-                            Err(e) => eprintln!("Failed to parse bundled services info JSON: {}", e),
+                            Err(e) => eprintln!("Failed to parse services info JSON: {}", e),
                         }
                     },
-                    Err(e) => eprintln!("Failed to read bundled services info file: {}", e),
+                    Err(e) => eprintln!("Failed to read services info file: {}", e),
                 }
             }
         }
-    } else {
-        eprintln!("Failed to get application directory for data loading");
     }
 
     println!("No existing service info found, starting with empty database");
@@ -683,7 +667,6 @@ fn load_services_info() -> HashMap<String, ServiceInfo> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Load environment variables from .env file
     if let Err(e) = dotenvy::dotenv() {
         println!("Warning: Could not load .env file: {}", e);
     } else {

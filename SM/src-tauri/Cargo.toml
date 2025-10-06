@@ -3,7 +3,7 @@ name = "services-manager"
 version = "0.4.0"
 description = "Windows Services Manager - A desktop application for managing Windows services"
 authors = ["Popelyshyn Ruslan"]
-edition = "2024"
+edition = "2021"
 
 [lib]
 # The `_lib` suffix may seem redundant but it is necessary
