@@ -239,7 +239,7 @@ const getStatusBadgeClass = (status) => {
         Paused: 'badge-warning',
         Pending: 'badge-warning',
     }
-    return 'badge ' + (classes[status] || 'badge-neutral')
+    return classes[status] || 'badge-neutral'
 }
 
 const getStartupTypeBadgeClass = (startupType) => {
@@ -250,7 +250,7 @@ const getStartupTypeBadgeClass = (startupType) => {
         System: 'badge-info',
         Boot: 'badge-info',
     }
-    return 'badge ' + (classes[startupType] || 'badge-neutral')
+    return classes[startupType] || 'badge-neutral'
 }
 </script>
 
@@ -279,5 +279,3 @@ const getStartupTypeBadgeClass = (startupType) => {
   color: var(--color-primary-content) !important;
 }
 </style>
-
-<style scoped></style>
