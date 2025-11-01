@@ -1,0 +1,92 @@
+name: MV Build and Release
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  check-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version-changed: ${{ steps.check.outputs.changed }}
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Check version change
+        id: check
+        run: |
+          if [ -f MV/Cargo.toml ]; then
+            current_version=$(grep '^version = ' MV/Cargo.toml | sed 's/version = "\(.*\)"/\1/')
+            previous_version=$(git show HEAD~1:MV/Cargo.toml | grep '^version = ' | sed 's/version = "\(.*\)"/\1/' || echo "")
+            if [ "$current_version" != "$previous_version" ]; then
+              echo "changed=true" >> $GITHUB_OUTPUT
+              echo "version=$current_version" >> $GITHUB_OUTPUT
+            else
+              echo "changed=false" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "changed=false" >> $GITHUB_OUTPUT
+          fi
+
+  build:
+    needs: check-version
+    if: needs.check-version.outputs.version-changed == 'true'
+    strategy:
+      matrix:
+        include:
+          - platform: 'windows-2022'
+            args: ''
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Rust setup
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: 'MV -> target'
+
+      - name: Build MV
+        run: cd MV && cargo build --release
+
+      - name: Rename executable
+        run: |
+          move MV\target\release\mv.exe MV_${{ needs.check-version.outputs.version }}.exe
+        shell: cmd
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mv-${{ matrix.platform }}
+          path: MV_${{ needs.check-version.outputs.version }}.exe
+
+  release:
+    needs: [check-version, build]
+    if: needs.check-version.outputs.version-changed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ needs.check-version.outputs.version }}
+          name: Version ${{ needs.check-version.outputs.version }}
+          draft: false
+          prerelease: false
+          files: artifacts/**/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

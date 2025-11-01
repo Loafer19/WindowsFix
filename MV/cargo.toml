@@ -1,0 +1,16 @@
+[package]
+name = "mv"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+cpal = "0.15.3"
+wgpu = "0.20"
+winit = "0.30"
+rustfft = "6.2"
+bytemuck = { version = "1.16", features = ["derive"] }  # For safe casting to GPU buffers
+wgpu_glyph = "0.20"
+pollster = "0.3"   # For blocking async in main
+image = "0.24"    # For loading window icon
+raw-window-handle = "0.6"
+windows = { version = "0.52", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_Graphics_Gdi"] }
