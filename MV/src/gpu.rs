@@ -5,7 +5,8 @@ use crate::error::{AppError, AppResult};
 use crate::plugin::Plugin;
 use rustfft::{FftPlanner, num_complex::Complex};
 use std::mem;
-use wgpu::util::DeviceExt;
+use wgpu::util::{DeviceExt, StagingBelt};
+use wgpu_glyph::{ab_glyph, GlyphBrush, GlyphBrushBuilder, Section, Text};
 
 /// GPU resources and state
 #[derive(Debug)]
@@ -23,6 +24,8 @@ pub struct GpuResources {
     pub particle_render_pipeline: wgpu::RenderPipeline,
     pub bind_group: wgpu::BindGroup,
     pub plugins: Vec<Plugin>,
+    pub glyph_brush: GlyphBrush<()>,
+    pub staging_belt: StagingBelt,
 }
 
 impl GpuResources {
@@ -89,6 +92,10 @@ impl GpuResources {
         let (particle_buffer, quad_buffer, particle_bind_group, compute_pipeline, particle_render_pipeline) =
             Self::create_particle_system(&device, &fft_buffer, &uniform_buffer, &render_pipeline_layout, config.format)?;
 
+        let font = ab_glyph::FontArc::try_from_slice(include_bytes!("../assets/DkHandRegular-orna.ttf")).unwrap();
+        let glyph_brush = GlyphBrushBuilder::using_font(font).build(device, config.format);
+        let staging_belt = StagingBelt::new(1024);
+
         Ok(Self {
             surface,
             device,
@@ -103,6 +110,8 @@ impl GpuResources {
             particle_render_pipeline,
             bind_group,
             plugins,
+            glyph_brush,
+            staging_belt,
         })
     }
 
@@ -408,7 +417,7 @@ impl GpuResources {
     }
 
     /// Render a frame
-    pub fn render(&mut self, plugin_index: usize) -> AppResult<()> {
+    pub fn render(&mut self, plugin_index: usize, show_info: bool) -> AppResult<()> {
         let output = self.surface.get_current_texture()?;
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
 
@@ -453,6 +462,18 @@ impl GpuResources {
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
+
+        // Render info text if needed
+        if show_info {
+            let section = Section::default()
+                .add_text(Text::new("Controls:\nSpace/P: Switch mode\nF: Fullscreen\nT: Transparent\nUp/Down: Intensity\nEsc: Exit")
+                    .with_color([1.0, 1.0, 1.0, 1.0])
+                    .with_scale(20.0));
+            self.glyph_brush.queue(section);
+            self.glyph_brush.draw_queued(&self.device, &mut self.staging_belt, &mut encoder, &view, self.config.width, self.config.height).unwrap();
+            self.staging_belt.finish();
+        }
+
         output.present();
 
         Ok(())

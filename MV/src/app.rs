@@ -5,13 +5,14 @@ use crate::constants::*;
 use crate::error::AppResult;
 use crate::gpu::{GpuResources, VisUniforms};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, KeyEvent, WindowEvent};
 use winit::event_loop::ActiveEventLoop;
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{Fullscreen, Icon, Window};
 #[cfg(target_os = "windows")]
-use raw_window_handle::{HasRawWindowHandle, RawWindowHandle};
+use raw_window_handle::HasWindowHandle;
 #[cfg(target_os = "windows")]
 use windows::Win32::Foundation::{COLORREF, HWND};
 #[cfg(target_os = "windows")]
@@ -28,6 +29,8 @@ pub struct App {
     current_plugin_index: usize,
     transparent: bool,
     debug_info: bool,
+    show_info: bool,
+    info_timer: Option<Instant>,
 }
 
 impl App {
@@ -49,6 +52,8 @@ impl App {
             current_plugin_index: 0,
             transparent: false,
             debug_info: false,
+            show_info: false,
+            info_timer: None,
         }
     }
 
@@ -60,6 +65,13 @@ impl App {
 
     /// Update application state
     pub fn update(&mut self) {
+        if let Some(timer) = self.info_timer {
+            if timer.elapsed() > Duration::from_secs(10) {
+                self.show_info = false;
+                self.info_timer = None;
+            }
+        }
+
         if let Some(gpu) = &mut self.gpu {
             // Set mode based on current plugin index (each plugin has its own mode)
             self.uniforms.mode = self.current_plugin_index as u32;
@@ -75,7 +87,7 @@ impl App {
     /// Render a frame
     pub fn render(&mut self) -> AppResult<()> {
         if let Some(gpu) = &mut self.gpu {
-            gpu.render(self.current_plugin_index)?;
+            gpu.render(self.current_plugin_index, self.show_info)?;
         }
         Ok(())
     }
@@ -90,6 +102,7 @@ impl App {
 
     /// Handle keyboard input
     pub fn handle_key_press(&mut self, physical_key: PhysicalKey) {
+        self.show_info = false;
         match physical_key {
             PhysicalKey::Code(KeyCode::Space) | PhysicalKey::Code(KeyCode::KeyP) => {
                 if let Some(gpu) = &self.gpu {
@@ -113,19 +126,21 @@ impl App {
                     self.transparent = !self.transparent;
                     #[cfg(target_os = "windows")]
                     {
-                        if let Ok(RawWindowHandle::Win32(win32_handle)) = window.raw_window_handle() {
-                            let hwnd = HWND(win32_handle.hwnd.get() as isize);
-                            unsafe {
-                                if self.transparent {
-                                    // Enable layered window
-                                    let ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
-                                    SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex_style | WS_EX_LAYERED.0 as isize);
-                                    // Set semi-transparent (alpha 150 out of 255)
-                                    let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), 150, LAYERED_WINDOW_ATTRIBUTES_FLAGS(2));
-                                } else {
-                                    // Disable layered window
-                                    let ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
-                                    SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex_style & !(WS_EX_LAYERED.0 as isize));
+                        if let Ok(window_handle) = window.window_handle() {
+                            if let raw_window_handle::RawWindowHandle::Win32(win32_handle) = window_handle.as_ref() {
+                                let hwnd = HWND(win32_handle.hwnd.get() as isize);
+                                unsafe {
+                                    if self.transparent {
+                                        // Enable layered window
+                                        let ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+                                        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex_style | WS_EX_LAYERED.0 as isize);
+                                        // Set semi-transparent (alpha 150 out of 255)
+                                        let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), 150, LAYERED_WINDOW_ATTRIBUTES_FLAGS(2));
+                                    } else {
+                                        // Disable layered window
+                                        let ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+                                        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex_style & !(WS_EX_LAYERED.0 as isize));
+                                    }
                                 }
                             }
                         }
@@ -161,6 +176,8 @@ impl ApplicationHandler for App {
         let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
         self.window = Some(Arc::clone(&window));
         self.init_gpu(window);
+        self.show_info = true;
+        self.info_timer = Some(Instant::now());
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, window_id: winit::window::WindowId, event: WindowEvent) {
