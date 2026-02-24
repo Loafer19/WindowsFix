@@ -1,6 +1,7 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 use std::collections::HashMap;
 use std::fs;
+use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime};
 
@@ -10,35 +11,36 @@ use tokio::time::timeout;
 use windows::core::PCWSTR;
 use windows::Win32::System::Services::*;
 
-fn load_services() -> HashMap<String, ServiceInfo> {
-    // Try to load from services.json relative to src-tauri directory
-    if let Ok(exe_path) = std::env::current_exe() {
-        if let Some(src_tauri_dir) = exe_path.parent().and_then(|p| p.parent()) {
-            let json_path = src_tauri_dir.join("services.json");
-            if let Ok(content) = fs::read_to_string(json_path) {
-                if let Ok(data) = serde_json::from_str::<HashMap<String, ServiceInfo>>(&content) {
-                    println!("Loaded {} services from services.json", data.len());
-                    return data;
-                }
-            }
-        }
-    }
-
-    // Fallback to minimal hardcoded defaults if JSON loading fails
-    println!("Failed to load services from JSON, using minimal fallback");
-    let mut defaults = HashMap::new();
-    defaults.insert("wuauserv".to_string(), ServiceInfo {
-        description: Some("Windows Update service".to_string()),
-        explained: Some("Manages Windows updates and security patches.".to_string()),
-        recommendation: Some("• Keep Automatic for security\n• Critical system service".to_string()),
-    });
-    defaults
+fn services_json_path() -> Option<PathBuf> {
+    std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().and_then(|p| p.parent()).map(|p| p.join("services.json")))
 }
 
-// Service information database for common Windows services
-fn get_default_service_info(service_name: &str) -> ServiceInfo {
-    let defaults = load_services();
+fn service_status_str(state: SERVICE_STATE) -> &'static str {
+    match state {
+        SERVICE_RUNNING => "Running",
+        SERVICE_STOPPED => "Stopped",
+        SERVICE_START_PENDING => "Start Pending",
+        SERVICE_STOP_PENDING => "Stop Pending",
+        SERVICE_PAUSE_PENDING => "Pause Pending",
+        SERVICE_PAUSED => "Paused",
+        _ => "Unknown",
+    }
+}
 
+fn startup_type_str(start_type: SERVICE_START_TYPE) -> &'static str {
+    match start_type {
+        SERVICE_AUTO_START => "Automatic",
+        SERVICE_DEMAND_START => "Manual",
+        SERVICE_DISABLED => "Disabled",
+        SERVICE_BOOT_START => "Boot",
+        SERVICE_SYSTEM_START => "System",
+        _ => "Unknown",
+    }
+}
+
+fn get_default_service_info(service_name: &str, defaults: &HashMap<String, ServiceInfo>) -> ServiceInfo {
     // Check for exact match first
     if let Some(info) = defaults.get(service_name) {
         return info.clone();
@@ -46,7 +48,7 @@ fn get_default_service_info(service_name: &str) -> ServiceInfo {
 
     // Check for partial matches (case-insensitive)
     let service_lower = service_name.to_lowercase();
-    for (key, info) in &defaults {
+    for (key, info) in defaults {
         if service_lower.contains(&key.to_lowercase()) || key.to_lowercase().contains(&service_lower) {
             return info.clone();
         }
@@ -82,18 +84,6 @@ pub struct ServiceInfo {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ServicesResponse {
     pub services: Vec<WindowsService>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ServiceResponse {
-    pub service: WindowsService,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct RefreshResponse {
-    pub message: String,
-    pub count: usize,
-    pub timestamp: String,
 }
 
 // App state
@@ -135,18 +125,13 @@ async fn get_services(state: State<'_, AppState>) -> Result<ServicesResponse, St
 }
 
 #[tauri::command]
-async fn refresh_services(state: State<'_, AppState>) -> Result<RefreshResponse, String> {
+async fn refresh_services(state: State<'_, AppState>) -> Result<(), String> {
     match refresh_services_cache(&state.services_info).await {
         Ok(new_data) => {
             let mut cache = state.services_cache.lock().unwrap();
-            let count = new_data.len();
             cache.data = new_data;
             cache.last_updated = SystemTime::now();
-            Ok(RefreshResponse {
-                message: "Services cache refreshed".to_string(),
-                count,
-                timestamp: chrono::Utc::now().to_rfc3339(),
-            })
+            Ok(())
         },
         Err(e) => Err(format!("Failed to refresh services cache: {}", e)),
     }
@@ -154,42 +139,36 @@ async fn refresh_services(state: State<'_, AppState>) -> Result<RefreshResponse,
 
 #[tauri::command]
 async fn reload_service_info(service_name: String, state: State<'_, AppState>) -> Result<ServiceInfo, String> {
-    // Always attempt to fetch fresh information for reload
-    // This ensures we get the latest data from web/AI sources
-    match fetch_service_info(&service_name).await {
-        Ok(info) => {
-            // Update the cache with new info
-            let mut cache = state.services_cache.lock().unwrap();
-            if let Some(service) = cache.data.iter_mut().find(|s| s.name == service_name) {
-                service.info = info.clone();
-            }
-
-            // Update persistent storage
-            let mut services_info = state.services_info.lock().unwrap();
-            services_info.insert(service_name.clone(), info.clone());
-            // Note: Not saving to JSON on reload to avoid frequent writes
-
-            println!("Successfully reloaded info for service: {}", service_name);
-            Ok(info)
-        },
-        Err(e) => {
-            // If fresh fetch fails, fall back to existing cached info if available
+    // Try AI first, fall back to default database
+    let info = match fetch_service_info_from_ai(&service_name).await {
+        Ok(ai_info) => ai_info,
+        Err(_) => {
             let services_info = state.services_info.lock().unwrap();
-            if let Some(existing_info) = services_info.get(&service_name) {
-                if existing_info.explained.is_some() || existing_info.recommendation.is_some() {
-                    println!("Fresh fetch failed, returning cached info for service: {}", service_name);
-                    return Ok(existing_info.clone());
+            if let Some(existing) = services_info.get(&service_name) {
+                if existing.explained.is_some() || existing.recommendation.is_some() {
+                    return Ok(existing.clone());
                 }
             }
+            get_default_service_info(&service_name, &services_info)
+        }
+    };
 
-            // If no cached info available, return the error
-            Err(format!("Failed to reload service info: {}", e))
-        },
+    // Update the cache and persistent storage
+    let mut cache = state.services_cache.lock().unwrap();
+    if let Some(service) = cache.data.iter_mut().find(|s| s.name == service_name) {
+        service.info = info.clone();
     }
+    drop(cache);
+
+    let mut services_info = state.services_info.lock().unwrap();
+    services_info.insert(service_name.clone(), info.clone());
+
+    println!("Successfully reloaded info for service: {}", service_name);
+    Ok(info)
 }
 
 #[tauri::command]
-async fn disable_service(service_name: String, state: State<'_, AppState>) -> Result<ServiceResponse, String> {
+async fn disable_service(service_name: String, state: State<'_, AppState>) -> Result<WindowsService, String> {
     let service_name_clone = service_name.clone();
     match tokio::task::spawn_blocking(move || disable_windows_service(&service_name_clone)).await {
         Ok(result) => match result {
@@ -201,9 +180,7 @@ async fn disable_service(service_name: String, state: State<'_, AppState>) -> Re
                     service.startup_type = updated_service.startup_type.clone();
                 }
 
-                Ok(ServiceResponse {
-                    service: updated_service,
-                })
+                Ok(updated_service)
             },
             Err(e) => Err(format!("Failed to disable service: {}", e)),
         },
@@ -227,11 +204,11 @@ async fn refresh_services_cache(services_info: &Mutex<HashMap<String, ServiceInf
                             existing_info.clone()
                         } else {
                             // Upgrade to default info if existing is minimal
-                            get_default_service_info(&name)
+                            get_default_service_info(&name, &info_map)
                         }
                     } else {
                         // No existing info, use defaults
-                        let default_info = get_default_service_info(&name);
+                        let default_info = get_default_service_info(&name, &info_map);
                         // Store in persistent storage for future use
                         info_map.insert(name.clone(), default_info.clone());
                         default_info
@@ -330,33 +307,18 @@ async fn get_windows_services() -> Result<Vec<WindowsService>, String> {
                 display_name = name.clone();
             }
 
-            let status = match service_info.ServiceStatusProcess.dwCurrentState {
-                SERVICE_RUNNING => "Running",
-                SERVICE_STOPPED => "Stopped",
-                SERVICE_START_PENDING => "Start Pending",
-                SERVICE_STOP_PENDING => "Stop Pending",
-                SERVICE_PAUSE_PENDING => "Pause Pending",
-                SERVICE_PAUSED => "Paused",
-                _ => "Unknown",
-            }.to_string();
+            let status = service_status_str(service_info.ServiceStatusProcess.dwCurrentState).to_string();
 
             // Get startup type
             let startup_type = if let Ok(service) = OpenServiceW(scm, PCWSTR::from_raw(service_info.lpServiceName.as_ptr() as *const _), SERVICE_QUERY_CONFIG) {
                 let mut config_size: u32 = 0;
                 let _ = QueryServiceConfigW(service, None, 0, &mut config_size);
 
-                let startup_type_str = if config_size > 0 {
+                let st = if config_size > 0 {
                     let mut config_buffer = vec![0u8; config_size as usize];
                     if QueryServiceConfigW(service, Some(config_buffer.as_mut_ptr() as *mut _), config_size, &mut config_size).is_ok() {
                         let config = &*(config_buffer.as_ptr() as *const QUERY_SERVICE_CONFIGW);
-                        match config.dwStartType {
-                            SERVICE_AUTO_START => "Automatic",
-                            SERVICE_DEMAND_START => "Manual",
-                            SERVICE_DISABLED => "Disabled",
-                            SERVICE_BOOT_START => "Boot",
-                            SERVICE_SYSTEM_START => "System",
-                            _ => "Unknown",
-                        }
+                        startup_type_str(config.dwStartType)
                     } else {
                         "Unknown"
                     }
@@ -364,7 +326,7 @@ async fn get_windows_services() -> Result<Vec<WindowsService>, String> {
                     "Unknown"
                 };
                 CloseServiceHandle(service).ok();
-                startup_type_str.to_string()
+                st.to_string()
             } else {
                 "Unknown".to_string()
             };
@@ -437,15 +399,7 @@ fn disable_windows_service(service_name: &str) -> Result<WindowsService, String>
         // Query updated status
         let mut status = SERVICE_STATUS::default();
         let status_str = if QueryServiceStatus(service, &mut status).is_ok() {
-            let s = match status.dwCurrentState {
-                SERVICE_RUNNING => "Running",
-                SERVICE_STOPPED => "Stopped",
-                SERVICE_START_PENDING => "Start Pending",
-                SERVICE_STOP_PENDING => "Stop Pending",
-                SERVICE_PAUSE_PENDING => "Pause Pending",
-                SERVICE_PAUSED => "Paused",
-                _ => "Unknown",
-            }.to_string();
+            let s = service_status_str(status.dwCurrentState).to_string();
             println!("Service {} status: {}", service_name, s);
             s
         } else {
@@ -457,16 +411,9 @@ fn disable_windows_service(service_name: &str) -> Result<WindowsService, String>
         let mut config_size: u32 = 0;
         let _ = QueryServiceConfigW(service, None, 0, &mut config_size);
         let mut config_buffer = vec![0u8; config_size as usize];
-        let startup_type_str = if QueryServiceConfigW(service, Some(config_buffer.as_mut_ptr() as *mut _), config_size, &mut config_size).is_ok() {
+        let startup_type = if QueryServiceConfigW(service, Some(config_buffer.as_mut_ptr() as *mut _), config_size, &mut config_size).is_ok() {
             let config = &*(config_buffer.as_ptr() as *const QUERY_SERVICE_CONFIGW);
-            let st = match config.dwStartType {
-                SERVICE_AUTO_START => "Automatic",
-                SERVICE_DEMAND_START => "Manual",
-                SERVICE_DISABLED => "Disabled",
-                SERVICE_BOOT_START => "Boot",
-                SERVICE_SYSTEM_START => "System",
-                _ => "Unknown",
-            }.to_string();
+            let st = startup_type_str(config.dwStartType).to_string();
             println!("Service {} startup type: {}", service_name, st);
             st
         } else {
@@ -482,7 +429,7 @@ fn disable_windows_service(service_name: &str) -> Result<WindowsService, String>
             name: service_name.to_string(),
             display_name: service_name.to_string(), // Keep original display name
             status: status_str,
-            startup_type: startup_type_str,
+            startup_type,
             info: ServiceInfo {
                 description: None,
                 explained: None,
@@ -490,17 +437,6 @@ fn disable_windows_service(service_name: &str) -> Result<WindowsService, String>
             },
         })
     }
-}
-
-async fn fetch_service_info(service_name: &str) -> Result<ServiceInfo, String> {
-    // Try AI first
-    match fetch_service_info_from_ai(service_name).await {
-        Ok(info) => return Ok(info),
-        Err(_) => {},
-    }
-
-    // Final fallback - use comprehensive default database
-    Ok(get_default_service_info(service_name))
 }
 
 async fn fetch_service_info_from_ai(service_name: &str) -> Result<ServiceInfo, String> {
@@ -618,45 +554,36 @@ fn extract_field_from_text(text: &str, field: &str) -> Option<String> {
 }
 
 fn save_services_info(services_info: &HashMap<String, ServiceInfo>) {
-    if let Ok(exe_path) = std::env::current_exe() {
-        if let Some(src_tauri_dir) = exe_path.parent().and_then(|p| p.parent()) {
-            let file_path = src_tauri_dir.join("services.json");
-            match serde_json::to_string_pretty(services_info) {
-                Ok(json) => {
-                    if let Err(e) = fs::write(&file_path, json) {
-                        eprintln!("Failed to write services info to file: {}", e);
-                    } else {
-                        println!("Successfully saved {} service info entries to services.json", services_info.len());
-                    }
-                },
-                Err(e) => eprintln!("Failed to serialize services info: {}", e),
-            }
-        } else {
-            eprintln!("Failed to determine src-tauri directory for data storage");
+    if let Some(file_path) = services_json_path() {
+        match serde_json::to_string_pretty(services_info) {
+            Ok(json) => {
+                if let Err(e) = fs::write(&file_path, json) {
+                    eprintln!("Failed to write services info to file: {}", e);
+                } else {
+                    println!("Successfully saved {} service info entries to services.json", services_info.len());
+                }
+            },
+            Err(e) => eprintln!("Failed to serialize services info: {}", e),
         }
     } else {
-        eprintln!("Failed to get executable path for data storage");
+        eprintln!("Failed to determine services.json path for data storage");
     }
 }
 
 fn load_services_info() -> HashMap<String, ServiceInfo> {
-    // Load from services.json relative to src-tauri directory
-    if let Ok(exe_path) = std::env::current_exe() {
-        if let Some(src_tauri_dir) = exe_path.parent().and_then(|p| p.parent()) {
-            let file_path = src_tauri_dir.join("services.json");
-            if file_path.exists() {
-                match fs::read_to_string(&file_path) {
-                    Ok(content) => {
-                        match serde_json::from_str::<HashMap<String, ServiceInfo>>(&content) {
-                            Ok(data) => {
-                                println!("Loaded {} service info entries from services.json", data.len());
-                                return data;
-                            },
-                            Err(e) => eprintln!("Failed to parse services info JSON: {}", e),
-                        }
-                    },
-                    Err(e) => eprintln!("Failed to read services info file: {}", e),
-                }
+    if let Some(file_path) = services_json_path() {
+        if file_path.exists() {
+            match fs::read_to_string(&file_path) {
+                Ok(content) => {
+                    match serde_json::from_str::<HashMap<String, ServiceInfo>>(&content) {
+                        Ok(data) => {
+                            println!("Loaded {} service info entries from services.json", data.len());
+                            return data;
+                        },
+                        Err(e) => eprintln!("Failed to parse services info JSON: {}", e),
+                    }
+                },
+                Err(e) => eprintln!("Failed to read services info file: {}", e),
             }
         }
     }

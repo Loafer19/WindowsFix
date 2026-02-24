@@ -24,7 +24,7 @@
                 <div v-if="selectedService.info.recommendation" class="md:col-span-2">
                     <label class="label label-text text-base-content/70">Recommendation</label>
                     <div class="alert alert-info">
-                        <div class="whitespace-pre-line">{{ selectedService.info.recommendation }}</div>
+                <div class="whitespace-pre-line">{{ selectedService.info.recommendation }}</div>
                     </div>
                 </div>
             </div>
@@ -52,9 +52,3 @@ const props = defineProps({
 
 defineEmits(['close', 'reload'])
 </script>
-
-<style scoped>
-.whitespace-pre-line {
-    white-space: pre-line;
-}
-</style>

@@ -29,9 +29,5 @@ windows = { version = "0.58", features = [
   "Win32_Security",
   "Win32_System_SystemServices",
 ] }
-chrono = { version = "0.4", features = ["serde"] }
-directories = "5.0"
-anyhow = "1.0"
-thiserror = "1.0"
 dotenvy = "0.15"
 

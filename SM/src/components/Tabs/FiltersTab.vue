@@ -68,16 +68,14 @@
 </template>
 
 <script setup>
-import { ref, watch } from 'vue'
+import { ref } from 'vue'
 import Button from '../Button.vue'
 import Icon from '../Icon.vue'
 
-// Reactive data
 const searchQuery = ref('')
 const selectedStatus = ref('')
 const selectedStartupType = ref('')
 
-// Props from parent
 const props = defineProps({
     filteredCount: {
         type: Number,
@@ -89,16 +87,8 @@ const props = defineProps({
     },
 })
 
-// Emits for parent communication
-const emit = defineEmits([
-    'update:searchQuery',
-    'update:selectedStatus',
-    'update:selectedStartupType',
-    'filter',
-    'refresh',
-])
+const emit = defineEmits(['filter', 'refresh'])
 
-// Filter services function
 const filterServices = () => {
     emit('filter', {
         searchQuery: searchQuery.value,
@@ -107,34 +97,14 @@ const filterServices = () => {
     })
 }
 
-// Watch for changes and emit filter events
-watch(
-    [searchQuery, selectedStatus, selectedStartupType],
-    () => {
-        filterServices()
-    },
-    { immediate: false },
-)
-
-// Refresh services
 const refresh = () => {
     emit('refresh')
 }
 
-// Clear filters
 const clearFilters = () => {
     searchQuery.value = ''
     selectedStatus.value = ''
     selectedStartupType.value = ''
     filterServices()
 }
-
-// Expose functions for parent access
-defineExpose({
-    searchQuery,
-    selectedStatus,
-    selectedStartupType,
-    filterServices,
-    clearFilters,
-})
 </script>
