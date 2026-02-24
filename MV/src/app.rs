@@ -3,7 +3,8 @@
 use crate::audio::AudioHandler;
 use crate::constants::*;
 use crate::error::AppResult;
-use crate::gpu::{GpuResources, VisUniforms};
+use crate::gpu::GpuResources;
+use crate::types::VisUniforms;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use winit::application::ApplicationHandler;
@@ -28,7 +29,6 @@ pub struct App {
     uniforms: VisUniforms,
     current_plugin_index: usize,
     transparent: bool,
-    debug_info: bool,
     show_info: bool,
     info_timer: Option<Instant>,
 }
@@ -51,7 +51,6 @@ impl App {
             },
             current_plugin_index: 0,
             transparent: false,
-            debug_info: false,
             show_info: false,
             info_timer: None,
         }

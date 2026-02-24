@@ -3,6 +3,7 @@
 use crate::constants::*;
 use crate::error::{AppError, AppResult};
 use crate::plugin::Plugin;
+use crate::types::{Particle, VisUniforms};
 use rustfft::{FftPlanner, num_complex::Complex};
 use std::mem;
 use wgpu::util::{DeviceExt, StagingBelt};
@@ -454,52 +455,31 @@ impl GpuResources {
             rpass.set_bind_group(0, &self.bind_group, &[]);
             rpass.draw(0..3, 0..1); // Simple triangle for full-screen quad
 
-                // Draw particles (overlay)
-                rpass.set_pipeline(&self.particle_render_pipeline);
-                rpass.set_vertex_buffer(0, self.quad_buffer.slice(..));
-                rpass.set_vertex_buffer(1, self.particle_buffer.slice(..));
-                rpass.draw(0..4, 0..NUM_PARTICLES);
+            // Draw particles (overlay)
+            rpass.set_pipeline(&self.particle_render_pipeline);
+            rpass.set_vertex_buffer(0, self.quad_buffer.slice(..));
+            rpass.set_vertex_buffer(1, self.particle_buffer.slice(..));
+            rpass.draw(0..4, 0..NUM_PARTICLES);
         }
 
-        self.queue.submit(std::iter::once(encoder.finish()));
-
-        // Render info text if needed
+        // Render info text before submitting commands
         if show_info {
             let section = Section::default()
-                .add_text(Text::new("Controls:\nSpace/P: Switch mode\nF: Fullscreen\nT: Transparent\nUp/Down: Intensity\nEsc: Exit")
-                    .with_color([1.0, 1.0, 1.0, 1.0])
-                    .with_scale(20.0));
+                .add_text(
+                    Text::new("Controls:\nSpace / P  – switch mode\nF          – fullscreen\nT          – transparency\nUp / Down  – intensity\nEsc        – exit")
+                        .with_color([1.0, 1.0, 1.0, 1.0])
+                        .with_scale(22.0),
+                );
             self.glyph_brush.queue(section);
-            self.glyph_brush.draw_queued(&self.device, &mut self.staging_belt, &mut encoder, &view, self.config.width, self.config.height).unwrap();
+            self.glyph_brush
+                .draw_queued(&self.device, &mut self.staging_belt, &mut encoder, &view, self.config.width, self.config.height)
+                .unwrap();
             self.staging_belt.finish();
         }
 
+        self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
 
         Ok(())
     }
-}
-
-/// Uniforms for visualization shaders
-#[repr(C)]
-#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct VisUniforms {
-    pub color: [f32; 4],
-    pub intensity: f32,
-    pub padding1: f32,
-    pub resolution: [f32; 2],
-    pub mode: u32,
-    pub padding2: [u32; 3],
-    pub padding3: [u32; 4],
-}
-
-/// Particle structure for GPU
-#[repr(C)]
-#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct Particle {
-    pub position: [f32; 2],
-    pub velocity: [f32; 2],
-    pub lifetime: f32,
-    pub padding: [f32; 3],
-    pub color: [f32; 4],
 }

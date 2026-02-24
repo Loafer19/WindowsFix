@@ -26,7 +26,9 @@ fn vs_main(@builtin(vertex_index) idx: u32) -> @builtin(position) vec4<f32> {
 fn fs_main(@builtin(position) coord: vec4<f32>) -> @location(0) vec4<f32> {
     let x = coord.x / uniforms.resolution.x;
     let y = 1.0 - coord.y / uniforms.resolution.y;
-    let idx = u32(x * f32(arrayLength(&data)));
+    // FFT fills only the first half of the buffer; map full width to valid range
+    let valid_len = arrayLength(&data) / 2u;
+    let idx = min(u32(x * f32(valid_len)), valid_len - 1u);
     let magnitude = data[idx] * uniforms.intensity;
     if (y < magnitude) {
         return uniforms.color;

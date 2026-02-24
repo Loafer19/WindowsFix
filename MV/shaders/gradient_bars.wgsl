@@ -27,7 +27,9 @@ fn fs_main(@builtin(position) coord: vec4<f32>) -> @location(0) vec4<f32> {
     let num_bars = 64.0;
     let bar_width = uniforms.resolution.x / num_bars;
     let bar_index = floor(coord.x / bar_width);
-    let freq_idx = u32((bar_index / num_bars) * f32(arrayLength(&data)));
+    // FFT fills only the first half of the buffer; map bars to valid range
+    let valid_len = arrayLength(&data) / 2u;
+    let freq_idx = min(u32((bar_index / num_bars) * f32(valid_len)), valid_len - 1u);
 
     let magnitude = data[freq_idx] * uniforms.intensity;
     let bar_height = magnitude * uniforms.resolution.y;
