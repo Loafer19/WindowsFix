@@ -26,7 +26,8 @@ fn vs_main(@builtin(vertex_index) idx: u32) -> @builtin(position) vec4<f32> {
 fn fs_main(@builtin(position) coord: vec4<f32>) -> @location(0) vec4<f32> {
     let x = coord.x / uniforms.resolution.x;
     let y_coord = 1.0 - coord.y / uniforms.resolution.y;
-    let idx = u32(x * f32(arrayLength(&data)));
+    let data_len = arrayLength(&data);
+    let idx = min(u32(x * f32(data_len)), data_len - 1u);
     let sample = data[idx] * uniforms.intensity;
     let y = (sample + 1.0) * 0.5;
     if (abs(y_coord - y) < 0.01) {

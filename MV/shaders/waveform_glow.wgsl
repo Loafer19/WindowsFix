@@ -25,7 +25,8 @@ fn vs_main(@builtin(vertex_index) idx: u32) -> @builtin(position) vec4<f32> {
 @fragment
 fn fs_main(@builtin(position) coord: vec4<f32>) -> @location(0) vec4<f32> {
     let x = coord.x / uniforms.resolution.x;
-    let idx = u32(x * f32(arrayLength(&data)));
+    let data_len = arrayLength(&data);
+    let idx = min(u32(x * f32(data_len)), data_len - 1u);
     let sample = data[idx] * uniforms.intensity;
     let waveform_y = (sample + 1.0) * 0.5 * uniforms.resolution.y;
 
