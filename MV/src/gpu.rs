@@ -4,13 +4,15 @@ use crate::constants::*;
 use crate::error::{AppError, AppResult};
 use crate::plugin::Plugin;
 use crate::types::{Particle, VisUniforms};
+use glyphon::{
+    Attrs, Color, Family, FontSystem, Metrics, Resolution, Shaping,
+    SwashCache, TextArea, TextAtlas, TextBounds, TextRenderer,
+};
 use rustfft::{FftPlanner, num_complex::Complex};
 use std::mem;
-use wgpu::util::{DeviceExt, StagingBelt};
-use wgpu_glyph::{ab_glyph, GlyphBrush, GlyphBrushBuilder, Section, Text};
+use wgpu::util::DeviceExt;
 
 /// GPU resources and state
-#[derive(Debug)]
 pub struct GpuResources {
     pub surface: wgpu::Surface<'static>,
     pub device: wgpu::Device,
@@ -25,8 +27,10 @@ pub struct GpuResources {
     pub particle_render_pipeline: wgpu::RenderPipeline,
     pub bind_group: wgpu::BindGroup,
     pub plugins: Vec<Plugin>,
-    pub glyph_brush: GlyphBrush<()>,
-    pub staging_belt: StagingBelt,
+    pub font_system: FontSystem,
+    pub swash_cache: SwashCache,
+    pub text_atlas: TextAtlas,
+    pub text_renderer: TextRenderer,
 }
 
 impl GpuResources {
@@ -93,9 +97,10 @@ impl GpuResources {
         let (particle_buffer, quad_buffer, particle_bind_group, compute_pipeline, particle_render_pipeline) =
             Self::create_particle_system(&device, &fft_buffer, &uniform_buffer, &render_pipeline_layout, config.format)?;
 
-        let font = ab_glyph::FontArc::try_from_slice(include_bytes!("../assets/DkHandRegular-orna.ttf")).unwrap();
-        let glyph_brush = GlyphBrushBuilder::using_font(font).build(device, config.format);
-        let staging_belt = StagingBelt::new(1024);
+        let font_system = FontSystem::new();
+        let swash_cache = SwashCache::new();
+        let mut text_atlas = TextAtlas::new(&device, &queue, config.format);
+        let text_renderer = TextRenderer::new(&mut text_atlas, &device, wgpu::MultisampleState::default(), None);
 
         Ok(Self {
             surface,
@@ -111,8 +116,10 @@ impl GpuResources {
             particle_render_pipeline,
             bind_group,
             plugins,
-            glyph_brush,
-            staging_belt,
+            font_system,
+            swash_cache,
+            text_atlas,
+            text_renderer,
         })
     }
 
@@ -304,7 +311,6 @@ impl GpuResources {
             layout: Some(&compute_pipeline_layout),
             module: &compute_shader,
             entry_point: "main",
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
         });
 
         let particle_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -318,7 +324,6 @@ impl GpuResources {
             vertex: wgpu::VertexState {
                 module: &particle_shader,
                 entry_point: "vs_main",
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
                 buffers: &[
                     wgpu::VertexBufferLayout {
                         array_stride: 8,
@@ -350,7 +355,6 @@ impl GpuResources {
             fragment: Some(wgpu::FragmentState {
                 module: &particle_shader,
                 entry_point: "fs_main",
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
                 targets: &[Some(wgpu::ColorTargetState {
                     format,
                     blend: Some(wgpu::BlendState::ALPHA_BLENDING),
@@ -432,6 +436,42 @@ impl GpuResources {
             cpass.dispatch_workgroups(NUM_PARTICLES / COMPUTE_WORKGROUP_SIZE + 1, 1, 1);
         }
 
+        // Prepare text rendering before the render pass
+        if show_info {
+            let mut buffer = glyphon::Buffer::new(&mut self.font_system, Metrics::new(22.0, 28.0));
+            buffer.set_size(&mut self.font_system, self.config.width as f32, self.config.height as f32);
+            buffer.set_text(
+                &mut self.font_system,
+                "Controls:\nSpace / P  \u{2013} switch mode\nF          \u{2013} fullscreen\nT          \u{2013} toggle transparency\n[ / ]      \u{2013} transparency -/+10%\nUp / Down  \u{2013} intensity\nEsc        \u{2013} exit",
+                Attrs::new().family(Family::SansSerif),
+                Shaping::Basic,
+            );
+            buffer.shape_until_scroll(&mut self.font_system);
+            self.text_renderer
+                .prepare(
+                    &self.device,
+                    &self.queue,
+                    &mut self.font_system,
+                    &mut self.text_atlas,
+                    Resolution { width: self.config.width, height: self.config.height },
+                    [TextArea {
+                        buffer: &buffer,
+                        left: 10.0,
+                        top: 10.0,
+                        scale: 1.0,
+                        bounds: TextBounds {
+                            left: 0,
+                            top: 0,
+                            right: self.config.width as i32,
+                            bottom: self.config.height as i32,
+                        },
+                        default_color: Color::rgb(255, 255, 255),
+                    }],
+                    &mut self.swash_cache,
+                )
+                .expect("Failed to prepare text");
+        }
+
         // Render
         {
             let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -460,25 +500,16 @@ impl GpuResources {
             rpass.set_vertex_buffer(0, self.quad_buffer.slice(..));
             rpass.set_vertex_buffer(1, self.particle_buffer.slice(..));
             rpass.draw(0..4, 0..NUM_PARTICLES);
-        }
 
-        // Render info text before submitting commands
-        if show_info {
-            let section = Section::default()
-                .add_text(
-                    Text::new("Controls:\nSpace / P  – switch mode\nF          – fullscreen\nT          – transparency\nUp / Down  – intensity\nEsc        – exit")
-                        .with_color([1.0, 1.0, 1.0, 1.0])
-                        .with_scale(22.0),
-                );
-            self.glyph_brush.queue(section);
-            self.glyph_brush
-                .draw_queued(&self.device, &mut self.staging_belt, &mut encoder, &view, self.config.width, self.config.height)
-                .unwrap();
-            self.staging_belt.finish();
+            // Render info text overlay
+            if show_info {
+                self.text_renderer.render(&self.text_atlas, &mut rpass).expect("Failed to render text");
+            }
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
+        self.text_atlas.trim();
 
         Ok(())
     }

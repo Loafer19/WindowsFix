@@ -1,6 +1,6 @@
 [package]
 name = "mv"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 
 [dependencies]
@@ -9,7 +9,7 @@ wgpu = "0.19"
 winit = "0.30"
 rustfft = "6.2"
 bytemuck = { version = "1.16", features = ["derive"] }  # For safe casting to GPU buffers
-wgpu_glyph = "0.22"
+glyphon = "0.5"
 pollster = "0.3"   # For blocking async in main
 image = "0.24"    # For loading window icon
 raw-window-handle = "0.6"
