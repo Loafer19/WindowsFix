@@ -38,3 +38,9 @@ pub const MODE_SPECTRUM: u32 = 0;
 
 /// Intensity adjustment step
 pub const INTENSITY_STEP: f32 = 0.1;
+
+/// Default transparency level (150/255 ≈ 59%)
+pub const DEFAULT_TRANSPARENCY: u8 = 150;
+
+/// Transparency adjustment step (~10%)
+pub const TRANSPARENCY_STEP: u8 = 25;

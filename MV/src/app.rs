@@ -29,6 +29,7 @@ pub struct App {
     uniforms: VisUniforms,
     current_plugin_index: usize,
     transparent: bool,
+    transparency_level: u8,
     show_info: bool,
     info_timer: Option<Instant>,
 }
@@ -51,6 +52,7 @@ impl App {
             },
             current_plugin_index: 0,
             transparent: false,
+            transparency_level: DEFAULT_TRANSPARENCY,
             show_info: false,
             info_timer: None,
         }
@@ -99,6 +101,42 @@ impl App {
         }
     }
 
+    /// Apply current transparency level to the window (Windows only)
+    #[cfg(target_os = "windows")]
+    fn apply_transparency(&self, window: &Window) {
+        if let Ok(window_handle) = window.window_handle() {
+            if let raw_window_handle::RawWindowHandle::Win32(win32_handle) = window_handle.as_ref() {
+                let hwnd = HWND(win32_handle.hwnd.get() as isize);
+                unsafe {
+                    if self.transparent {
+                        let ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+                        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex_style | WS_EX_LAYERED.0 as isize);
+                        let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), self.transparency_level, LAYERED_WINDOW_ATTRIBUTES_FLAGS(2));
+                    } else {
+                        let ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+                        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex_style & !(WS_EX_LAYERED.0 as isize));
+                    }
+                }
+            }
+        }
+    }
+
+    /// Update transparency level by delta and apply if transparency is active (Windows only)
+    #[cfg(target_os = "windows")]
+    fn adjust_transparency_level(&mut self, increase: bool) {
+        if increase {
+            self.transparency_level = self.transparency_level.saturating_add(TRANSPARENCY_STEP);
+        } else {
+            self.transparency_level = self.transparency_level.saturating_sub(TRANSPARENCY_STEP);
+        }
+        println!("Transparency: {}%", self.transparency_level as u32 * 100 / 255);
+        if self.transparent {
+            if let Some(window) = self.window.clone() {
+                self.apply_transparency(&window);
+            }
+        }
+    }
+
     /// Handle keyboard input
     pub fn handle_key_press(&mut self, physical_key: PhysicalKey) {
         self.show_info = false;
@@ -124,31 +162,20 @@ impl App {
                 if let Some(window) = &self.window {
                     self.transparent = !self.transparent;
                     #[cfg(target_os = "windows")]
-                    {
-                        if let Ok(window_handle) = window.window_handle() {
-                            if let raw_window_handle::RawWindowHandle::Win32(win32_handle) = window_handle.as_ref() {
-                                let hwnd = HWND(win32_handle.hwnd.get() as isize);
-                                unsafe {
-                                    if self.transparent {
-                                        // Enable layered window
-                                        let ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
-                                        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex_style | WS_EX_LAYERED.0 as isize);
-                                        // Set semi-transparent (alpha 150 out of 255)
-                                        let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), 150, LAYERED_WINDOW_ATTRIBUTES_FLAGS(2));
-                                    } else {
-                                        // Disable layered window
-                                        let ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
-                                        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex_style & !(WS_EX_LAYERED.0 as isize));
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    self.apply_transparency(window);
                     #[cfg(not(target_os = "windows"))]
                     {
                         let _ = window.set_transparent(self.transparent);
                     }
                 }
+            }
+            PhysicalKey::Code(KeyCode::BracketLeft) => {
+                #[cfg(target_os = "windows")]
+                self.adjust_transparency_level(false);
+            }
+            PhysicalKey::Code(KeyCode::BracketRight) => {
+                #[cfg(target_os = "windows")]
+                self.adjust_transparency_level(true);
             }
             PhysicalKey::Code(KeyCode::ArrowUp) => {
                 self.uniforms.intensity = (self.uniforms.intensity + INTENSITY_STEP).min(10.0);
