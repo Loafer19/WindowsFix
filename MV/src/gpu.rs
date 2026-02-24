@@ -442,7 +442,7 @@ impl GpuResources {
             buffer.set_size(&mut self.font_system, self.config.width as f32, self.config.height as f32);
             buffer.set_text(
                 &mut self.font_system,
-                "Controls:\nSpace / P  \u{2013} switch mode\nF          \u{2013} fullscreen\nT          \u{2013} toggle transparency\n[ / ]      \u{2013} transparency -/+10%\nUp / Down  \u{2013} intensity\nEsc        \u{2013} exit",
+                "Controls:\nSpace / P  \u{2013} switch mode\nF          \u{2013} fullscreen\nT          \u{2013} toggle transparency\n[ / ]      \u{2013} transparency -/+10%\nUp / Down  \u{2013} intensity\nI          \u{2013} toggle info\nEsc        \u{2013} exit",
                 Attrs::new().family(Family::SansSerif),
                 Shaping::Basic,
             );

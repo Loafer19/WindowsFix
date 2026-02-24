@@ -139,8 +139,17 @@ impl App {
 
     /// Handle keyboard input
     pub fn handle_key_press(&mut self, physical_key: PhysicalKey) {
+        let old_show_info = self.show_info;
         self.show_info = false;
         match physical_key {
+            PhysicalKey::Code(KeyCode::KeyI) => {
+                self.show_info = !old_show_info;
+                if self.show_info {
+                    self.info_timer = Some(Instant::now());
+                } else {
+                    self.info_timer = None;
+                }
+            }
             PhysicalKey::Code(KeyCode::Space) | PhysicalKey::Code(KeyCode::KeyP) => {
                 if let Some(gpu) = &self.gpu {
                     self.current_plugin_index = (self.current_plugin_index + 1) % gpu.plugins.len();

@@ -17,7 +17,7 @@ fn services_json_path() -> Option<PathBuf> {
         .and_then(|p| p.parent().and_then(|p| p.parent()).map(|p| p.join("services.json")))
 }
 
-fn service_status_str(state: SERVICE_STATE) -> &'static str {
+fn service_status_str(state: SERVICE_STATUS_CURRENT_STATE) -> &'static str {
     match state {
         SERVICE_RUNNING => "Running",
         SERVICE_STOPPED => "Stopped",
