@@ -1,16 +1,17 @@
-import { ref, watch } from 'vue'
+import { ref } from 'vue'
 
 export function useFiltering(allServices) {
-    const searchQuery = ref('')
-    const selectedStatus = ref('')
-    const selectedStartupType = ref('')
     const filteredServices = ref([])
 
     const filterServices = () => {
+        filteredServices.value = allServices.value
+    }
+
+    const handleFilter = (filterData) => {
         let filtered = [...allServices.value]
 
-        if (searchQuery.value) {
-            const query = searchQuery.value.toLowerCase()
+        if (filterData.searchQuery) {
+            const query = filterData.searchQuery.toLowerCase()
             filtered = filtered.filter(
                 (service) =>
                     service.name.toLowerCase().includes(query) ||
@@ -18,37 +19,23 @@ export function useFiltering(allServices) {
             )
         }
 
-        if (selectedStatus.value) {
+        if (filterData.selectedStatus) {
             filtered = filtered.filter(
-                (service) => service.status === selectedStatus.value,
+                (service) => service.status === filterData.selectedStatus,
             )
         }
 
-        if (selectedStartupType.value) {
+        if (filterData.selectedStartupType) {
             filtered = filtered.filter(
-                (service) => service.startupType === selectedStartupType.value,
+                (service) =>
+                    service.startupType === filterData.selectedStartupType,
             )
         }
 
         filteredServices.value = filtered
     }
 
-    const handleFilter = (filterData) => {
-        searchQuery.value = filterData.searchQuery
-        selectedStatus.value = filterData.selectedStatus
-        selectedStartupType.value = filterData.selectedStartupType
-        filterServices()
-    }
-
-    // Watch for filter changes
-    watch([searchQuery, selectedStatus, selectedStartupType], () => {
-        filterServices()
-    })
-
     return {
-        searchQuery,
-        selectedStatus,
-        selectedStartupType,
         filteredServices,
         filterServices,
         handleFilter,
