@@ -29,7 +29,10 @@ export function useFiltering(allServices) {
         localStorage.setItem('serviceFilters', JSON.stringify(filters))
     }
 
-    watch([searchQuery, selectedStatus, selectedStartupType], saveFiltersToStorage)
+    watch(
+        [searchQuery, selectedStatus, selectedStartupType],
+        saveFiltersToStorage,
+    )
 
     const filterServices = () => {
         let filtered = [...allServices.value]
@@ -51,8 +54,7 @@ export function useFiltering(allServices) {
 
         if (selectedStartupType.value) {
             filtered = filtered.filter(
-                (service) =>
-                    service.startupType === selectedStartupType.value,
+                (service) => service.startupType === selectedStartupType.value,
             )
         }
 
