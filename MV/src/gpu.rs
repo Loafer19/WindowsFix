@@ -358,7 +358,7 @@ impl GpuResources {
             for i in 0..n {
                 self.smoothed_fft[i] = self.smoothed_fft[i] * (1.0 - smoothing) + magnitudes[i] * smoothing;
             }
-            // Compute bass energy from first ~6 bins (~20-150 Hz)
+            // Compute bass energy from first ~6 bins (~20-150 Hz at 44100 Hz / 512 samples)
             let bass_bins = 6.min(self.smoothed_fft.len());
             let raw_bass = self.smoothed_fft[..bass_bins].iter().sum::<f32>() / bass_bins as f32;
             self.bass_energy = (raw_bass * 10.0).min(1.0);
