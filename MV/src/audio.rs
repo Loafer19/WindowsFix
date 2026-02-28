@@ -1,6 +1,6 @@
 //! Audio input handling using cpal
 
-use crate::constants::{SAMPLE_RATE, SAMPLE_SIZE, TEST_FREQUENCY};
+use crate::constants::SAMPLE_SIZE;
 use crate::error::{AppError, AppResult};
 use cpal::traits::{DeviceTrait, StreamTrait};
 use std::sync::{Arc, Mutex};
@@ -236,20 +236,5 @@ impl AudioHandler {
             _input_stream: stream,
             _output_stream,
         })
-    }
-
-    /// Generate test sine wave data if no audio input
-    pub fn generate_test_wave(&self) -> Vec<f32> {
-        (0..SAMPLE_SIZE)
-            .map(|i| {
-                (i as f32 * TEST_FREQUENCY * 2.0 * std::f32::consts::PI / SAMPLE_RATE).sin() * 0.5
-            })
-            .collect()
-    }
-
-    /// Check if audio buffer contains meaningful data
-    pub fn has_audio_data(&self) -> bool {
-        let buffer = self.buffer.lock().unwrap();
-        !buffer.iter().all(|&x| x.abs() < 0.01)
     }
 }

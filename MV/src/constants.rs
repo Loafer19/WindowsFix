@@ -29,15 +29,16 @@ pub const WINDOW_TITLE: &str = "Music Visualizer";
 pub const DEFAULT_COLOR: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
 pub const DEFAULT_INTENSITY: f32 = 1.0;
 
-/// Test audio frequency for sine wave generation
-pub const TEST_FREQUENCY: f32 = 440.0;
-pub const SAMPLE_RATE: f32 = 44100.0;
-
-/// Visualization modes
-pub const MODE_SPECTRUM: u32 = 0;
-
 /// Intensity adjustment step
 pub const INTENSITY_STEP: f32 = 0.1;
+
+/// Number of FFT bins considered "bass" for energy computation.
+///
+/// With a 512-sample FFT at 44 100 Hz the bin resolution is ~86 Hz/bin,
+/// so 6 bins cover roughly 0–516 Hz — a generous low-frequency range that
+/// gives a perceptually useful "punch" value across common sample rates
+/// (44 100 / 48 000 Hz).  Increase this value for a broader low-end window.
+pub const BASS_BIN_COUNT: usize = 6;
 
 /// Default transparency level (150/255 ≈ 59%)
 pub const DEFAULT_TRANSPARENCY: u8 = 150;
