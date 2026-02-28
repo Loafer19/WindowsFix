@@ -16,7 +16,9 @@
                         :servicesByStartupType="servicesByStartupType" :totalServices="totalServices"
                         :filteredCount="filteredServices.length" :totalCount="totalServices" :searchQuery="searchQuery"
                         :selectedStatus="selectedStatus" :selectedStartupType="selectedStartupType"
-                        @filter="handleFilter" @refresh="refresh" @clear-filters="clearFilters" />
+                        :history="history"
+                        @filter="handleFilter" @refresh="refresh" @clear-filters="clearFilters"
+                        @clear-history="clearHistory" />
                 </div>
             </div>
 
@@ -51,12 +53,12 @@
                                             service.name }}</span>
                                     </td>
                                     <td>
-                                        <div :class="getStatusBadgeClass(service.status)" class="badge">
+                                        <div :class="`badge-${getStatusColor(service.status)}`" class="badge">
                                             {{ service.status }}
                                         </div>
                                     </td>
                                     <td>
-                                        <div :class="getStartupTypeBadgeClass(service.startupType)" class="badge">
+                                        <div :class="`badge-${getStartupTypeColor(service.startupType)}`" class="badge">
                                             {{ service.startupType }}
                                         </div>
                                     </td>
@@ -103,8 +105,10 @@ import ConfirmDisableModal from './components/Modals/ConfirmDisableModal.vue'
 import ServiceDetailsModal from './components/Modals/ServiceDetailsModal.vue'
 import AnalyticsTab from './components/Tabs/AnalyticsTab.vue'
 import FiltersTab from './components/Tabs/FiltersTab.vue'
+import HistoryTab from './components/Tabs/HistoryTab.vue'
 import { useAnalytics } from './composables/useAnalytics.js'
 import { useFiltering } from './composables/useFiltering.js'
+import { useHistory } from './composables/useHistory.js'
 import { useModals } from './composables/useModals.js'
 import {
     disableService,
@@ -112,6 +116,7 @@ import {
     refreshServices,
     reloadServiceInfo,
 } from './services/api.js'
+import { getStartupTypeColor, getStatusColor } from './services/helpers.js'
 
 const tabs = ref([
     {
@@ -126,6 +131,12 @@ const tabs = ref([
         component: markRaw(AnalyticsTab),
         icon: 'fileChart',
     },
+    {
+        id: 'history',
+        name: 'History',
+        component: markRaw(HistoryTab),
+        icon: 'history',
+    },
 ])
 const activeTab = ref(markRaw(FiltersTab))
 
@@ -135,8 +146,15 @@ const loading = ref(true)
 
 const { totalServices, servicesByStatus, servicesByStartupType } =
     useAnalytics(allServices)
-const { filteredServices, searchQuery, selectedStatus, selectedStartupType, filterServices, handleFilter, clearFilters } =
-    useFiltering(allServices)
+const {
+    filteredServices,
+    searchQuery,
+    selectedStatus,
+    selectedStartupType,
+    filterServices,
+    handleFilter,
+    clearFilters,
+} = useFiltering(allServices)
 const {
     showModal,
     selectedService,
@@ -146,6 +164,7 @@ const {
     confirmDisable: confirmDisableModal,
     openModalForDetails,
 } = useModals()
+const { history, addToHistory, clearHistory } = useHistory()
 
 const confirmDisable = () => confirmDisableModal(disable)
 
@@ -158,7 +177,7 @@ const loadServicesData = async () => {
         loading.value = true
         error.value = false
         const data = await loadServices()
-        allServices.value = data
+        allServices.value = data.sort((a, b) => a.name.localeCompare(b.name))
         filterServices()
     } catch (err) {
         console.error('Failed to load services:', err)
@@ -175,7 +194,6 @@ const refresh = async () => {
         await loadServicesData()
     } catch (err) {
         console.error('Failed to refresh services:', err)
-        // Keep existing data on refresh failure
         loading.value = false
     }
 }
@@ -187,7 +205,6 @@ const reloadInfo = async (service) => {
         const data = await reloadServiceInfo(service.name)
         service.info = data
 
-        // Also update the original service in allServices array
         const originalService = allServices.value.find(
             (s) => s.name === service.name,
         )
@@ -202,7 +219,6 @@ const reloadInfo = async (service) => {
         console.error('Failed to reload service info:', error)
         service.info = { error: true, message: 'Failed to reload information' }
 
-        // Also update the original service in allServices array
         const originalService = allServices.value.find(
             (s) => s.name === service.name,
         )
@@ -219,6 +235,7 @@ const disable = async (service) => {
 
     try {
         const data = await disableService(service.name)
+        addToHistory(service)
         Object.assign(service, data)
     } catch (error) {
         console.error('Failed to disable service:', error)
@@ -226,27 +243,6 @@ const disable = async (service) => {
     } finally {
         service.isDisabling = false
     }
-}
-
-const getStatusBadgeClass = (status) => {
-    const classes = {
-        Running: 'badge-error',
-        Stopped: 'badge-neutral',
-        Paused: 'badge-warning',
-        Pending: 'badge-warning',
-    }
-    return classes[status] || 'badge-neutral'
-}
-
-const getStartupTypeBadgeClass = (startupType) => {
-    const classes = {
-        Automatic: 'badge-error',
-        Manual: 'badge-warning',
-        Disabled: 'badge-neutral',
-        System: 'badge-info',
-        Boot: 'badge-info',
-    }
-    return classes[startupType] || 'badge-neutral'
 }
 </script>
 

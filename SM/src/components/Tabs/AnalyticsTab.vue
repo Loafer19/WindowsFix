@@ -39,6 +39,8 @@
 </template>
 
 <script setup>
+import { getStartupTypeColor, getStatusColor } from '../../services/helpers.js'
+
 const props = defineProps({
     servicesByStatus: {
         type: Object,
@@ -53,25 +55,4 @@ const props = defineProps({
         default: 0,
     },
 })
-
-const getStatusColor = (status) => {
-    const colors = {
-        Running: 'error',
-        Stopped: 'neutral',
-        Paused: 'warning',
-        Pending: 'warning',
-    }
-    return colors[status] || 'neutral'
-}
-
-const getStartupTypeColor = (type) => {
-    const colors = {
-        Automatic: 'error',
-        Manual: 'warning',
-        Disabled: 'neutral',
-        System: 'info',
-        Boot: 'info',
-    }
-    return colors[type] || 'neutral'
-}
 </script>
