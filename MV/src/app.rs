@@ -9,7 +9,7 @@ use crate::types::VisUniforms;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use winit::application::ApplicationHandler;
-use winit::event::{ElementState, KeyEvent, WindowEvent};
+use winit::event::{ElementState, KeyEvent, MouseScrollDelta, WindowEvent};
 use winit::event_loop::ActiveEventLoop;
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{Fullscreen, Icon, Window};
@@ -34,9 +34,12 @@ pub struct App {
     info_timer: Option<Instant>,
     settings: AppSettings,
     egui_ctx: egui::Context,
+    egui_raw_input: egui::RawInput,
+    egui_pointer_pos: egui::Pos2,
     transition_time: f32,
     transition_active: bool,
     last_mode_switch: Instant,
+    last_frame_time: Instant,
 }
 
 impl App {
@@ -64,9 +67,12 @@ impl App {
             info_timer: None,
             settings: AppSettings::new(),
             egui_ctx: egui::Context::default(),
+            egui_raw_input: egui::RawInput::default(),
+            egui_pointer_pos: egui::Pos2::ZERO,
             transition_time: 0.0,
             transition_active: false,
             last_mode_switch: Instant::now(),
+            last_frame_time: Instant::now(),
         }
     }
 
@@ -96,13 +102,15 @@ impl App {
             }
         }
 
-        // Advance transition
+        // Advance transition using actual elapsed time
         if self.transition_active {
-            self.transition_time += 1.0 / 60.0;
+            let dt = self.last_frame_time.elapsed().as_secs_f32();
+            self.transition_time += dt;
             if self.transition_time >= 0.5 {
                 self.transition_active = false;
             }
         }
+        self.last_frame_time = Instant::now();
 
         if let Some(gpu) = &mut self.gpu {
             self.uniforms.mode = self.current_plugin_index as u32;
@@ -127,7 +135,15 @@ impl App {
             .unwrap_or_default();
 
         let mut settings_copy = self.settings.clone();
-        let full_output = self.egui_ctx.run(egui::RawInput::default(), |ctx| {
+        // Take accumulated input; set screen_rect if not already set
+        let mut raw_input = std::mem::take(&mut self.egui_raw_input);
+        if raw_input.screen_rect.is_none() {
+            raw_input.screen_rect = Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(width as f32, height as f32),
+            ));
+        }
+        let full_output = self.egui_ctx.run(raw_input, |ctx| {
             if show_info {
                 egui::Window::new("Controls")
                     .resizable(false)
@@ -224,6 +240,49 @@ impl App {
         }
     }
 
+    /// Forward winit window events to egui's raw input accumulator.
+    ///
+    /// `egui-winit` 0.27 requires winit 0.29 and is type-incompatible with the
+    /// winit 0.30 `ApplicationHandler` API used by this app, so mouse/scroll
+    /// events are forwarded manually instead.
+    fn forward_to_egui(&mut self, event: &WindowEvent) {
+        match event {
+            WindowEvent::CursorMoved { position, .. } => {
+                let pos = egui::pos2(position.x as f32, position.y as f32);
+                self.egui_pointer_pos = pos;
+                self.egui_raw_input.events.push(egui::Event::PointerMoved(pos));
+            }
+            WindowEvent::MouseInput { state, button, .. } => {
+                let egui_button = match button {
+                    winit::event::MouseButton::Left   => egui::PointerButton::Primary,
+                    winit::event::MouseButton::Right  => egui::PointerButton::Secondary,
+                    winit::event::MouseButton::Middle => egui::PointerButton::Middle,
+                    _ => return,
+                };
+                self.egui_raw_input.events.push(egui::Event::PointerButton {
+                    pos: self.egui_pointer_pos,
+                    button: egui_button,
+                    pressed: matches!(state, ElementState::Pressed),
+                    modifiers: egui::Modifiers::default(),
+                });
+            }
+            WindowEvent::MouseWheel { delta, .. } => {
+                let scroll = match delta {
+                    MouseScrollDelta::LineDelta(x, y) => egui::vec2(*x * 20.0, *y * 20.0),
+                    MouseScrollDelta::PixelDelta(pos) => egui::vec2(pos.x as f32, pos.y as f32),
+                };
+                self.egui_raw_input.events.push(egui::Event::Scroll(scroll));
+            }
+            WindowEvent::Resized(size) => {
+                self.egui_raw_input.screen_rect = Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(size.width as f32, size.height as f32),
+                ));
+            }
+            _ => {}
+        }
+    }
+
     pub fn handle_key_press(&mut self, physical_key: PhysicalKey) {
         let old_show_info = self.show_info;
         self.show_info = false;
@@ -311,6 +370,9 @@ impl ApplicationHandler for App {
         } else {
             return;
         }
+
+        // Forward mouse/scroll events to egui's input accumulator
+        self.forward_to_egui(&event);
 
         match event {
             WindowEvent::Resized(new_size) => self.resize(new_size),
