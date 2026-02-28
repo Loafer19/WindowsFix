@@ -9,7 +9,9 @@ wgpu = "0.19"
 winit = "0.30"
 rustfft = "6.2"
 bytemuck = { version = "1.16", features = ["derive"] }  # For safe casting to GPU buffers
-glyphon = "0.5"
+egui = "0.27"
+egui-wgpu = "0.27"
+egui-winit = "0.27"
 pollster = "0.3"   # For blocking async in main
 image = "0.24"    # For loading window icon
 raw-window-handle = "0.6"

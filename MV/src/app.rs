@@ -4,6 +4,7 @@ use crate::audio::AudioHandler;
 use crate::constants::*;
 use crate::error::AppResult;
 use crate::gpu::GpuResources;
+use crate::settings::{AppSettings, ColorScheme};
 use crate::types::VisUniforms;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -21,7 +22,6 @@ use windows::Win32::UI::WindowsAndMessaging::{SetLayeredWindowAttributes, LAYERE
 #[cfg(target_os = "windows")]
 use windows::Win32::UI::WindowsAndMessaging::{GetWindowLongPtrW, SetWindowLongPtrW, GWL_EXSTYLE, WS_EX_LAYERED};
 
-/// Main application state
 pub struct App {
     window: Option<Arc<Window>>,
     gpu: Option<GpuResources>,
@@ -32,10 +32,14 @@ pub struct App {
     transparency_level: u8,
     show_info: bool,
     info_timer: Option<Instant>,
+    settings: AppSettings,
+    egui_ctx: egui::Context,
+    transition_time: f32,
+    transition_active: bool,
+    last_mode_switch: Instant,
 }
 
 impl App {
-    /// Create a new application instance
     pub fn new(audio: AudioHandler) -> Self {
         Self {
             window: None,
@@ -48,23 +52,29 @@ impl App {
                 resolution: [DEFAULT_WINDOW_WIDTH as f32, DEFAULT_WINDOW_HEIGHT as f32],
                 mode: 0,
                 padding2: [0; 3],
-                padding3: [0; 4],
+                time: 0.0,
+                bass_energy: 0.0,
+                smoothing_factor: 0.1,
+                gain: 1.5,
             },
             current_plugin_index: 0,
             transparent: false,
             transparency_level: DEFAULT_TRANSPARENCY,
             show_info: false,
             info_timer: None,
+            settings: AppSettings::new(),
+            egui_ctx: egui::Context::default(),
+            transition_time: 0.0,
+            transition_active: false,
+            last_mode_switch: Instant::now(),
         }
     }
 
-    /// Initialize GPU resources
     pub fn init_gpu(&mut self, window: Arc<Window>) {
         let gpu = pollster::block_on(GpuResources::new(window)).expect("Failed to initialize GPU");
         self.gpu = Some(gpu);
     }
 
-    /// Update application state
     pub fn update(&mut self) {
         if let Some(timer) = self.info_timer {
             if timer.elapsed() > Duration::from_secs(10) {
@@ -73,27 +83,106 @@ impl App {
             }
         }
 
+        // Auto-switch modes
+        if self.settings.auto_switch_modes {
+            let switch_dur = Duration::from_secs_f32(self.settings.mode_switch_seconds);
+            if self.last_mode_switch.elapsed() > switch_dur {
+                if let Some(gpu) = &self.gpu {
+                    self.current_plugin_index = (self.current_plugin_index + 1) % gpu.plugins.len();
+                    self.last_mode_switch = Instant::now();
+                    self.transition_active = true;
+                    self.transition_time = 0.0;
+                }
+            }
+        }
+
+        // Advance transition
+        if self.transition_active {
+            self.transition_time += 1.0 / 60.0;
+            if self.transition_time >= 0.5 {
+                self.transition_active = false;
+            }
+        }
+
         if let Some(gpu) = &mut self.gpu {
-            // Set mode based on current plugin index (each plugin has its own mode)
             self.uniforms.mode = self.current_plugin_index as u32;
+            self.uniforms.smoothing_factor = self.settings.smoothing_factor;
+            self.uniforms.gain = self.settings.gain;
+            self.uniforms.color = self.settings.scheme_color();
 
-            // Get audio data
             let audio_data = self.audio.buffer.lock().unwrap().clone();
-
-            // Update GPU with new data
             gpu.update(&self.uniforms, &audio_data);
         }
     }
 
-    /// Render a frame
     pub fn render(&mut self) -> AppResult<()> {
+        let (width, height) = self.gpu.as_ref()
+            .map(|g| (g.config.width, g.config.height))
+            .unwrap_or((DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT));
+
+        let show_info = self.show_info;
+        let plugin_name = self.gpu.as_ref()
+            .and_then(|g| g.plugins.get(self.current_plugin_index))
+            .map(|p| p.name.clone())
+            .unwrap_or_default();
+
+        let mut settings_copy = self.settings.clone();
+        let full_output = self.egui_ctx.run(egui::RawInput::default(), |ctx| {
+            if show_info {
+                egui::Window::new("Controls")
+                    .resizable(false)
+                    .show(ctx, |ui| {
+                        ui.label(format!("Mode: {}", plugin_name));
+                        ui.separator();
+                        ui.label("Space/P  – switch mode");
+                        ui.label("F1       – settings");
+                        ui.label("F        – fullscreen");
+                        ui.label("T        – toggle transparency");
+                        ui.label("Up/Down  – intensity");
+                        ui.label("I        – toggle info");
+                        ui.label("Esc      – exit");
+                    });
+            }
+            if settings_copy.show_settings {
+                egui::Window::new("⚙ Settings")
+                    .resizable(true)
+                    .show(ctx, |ui| {
+                        ui.add(egui::Slider::new(&mut settings_copy.smoothing_factor, 0.01..=0.3).text("Smoothing"));
+                        ui.add(egui::Slider::new(&mut settings_copy.gain, 0.5..=5.0).text("Gain"));
+                        ui.add(egui::Slider::new(&mut settings_copy.bass_boost, 0.0..=2.0).text("Bass Boost"));
+                        ui.separator();
+                        ui.label("Color Scheme:");
+                        ui.horizontal(|ui| {
+                            ui.selectable_value(&mut settings_copy.color_scheme, ColorScheme::Classic, "Classic");
+                            ui.selectable_value(&mut settings_copy.color_scheme, ColorScheme::Neon,    "Neon");
+                            ui.selectable_value(&mut settings_copy.color_scheme, ColorScheme::Pastel,  "Pastel");
+                            ui.selectable_value(&mut settings_copy.color_scheme, ColorScheme::Fire,    "Fire");
+                        });
+                        ui.separator();
+                        ui.checkbox(&mut settings_copy.auto_switch_modes, "Auto-switch modes");
+                        if settings_copy.auto_switch_modes {
+                            ui.add(egui::Slider::new(&mut settings_copy.mode_switch_seconds, 5.0..=120.0).text("Switch interval (s)"));
+                        }
+                    });
+            }
+        });
+
+        self.settings = settings_copy;
+
+        let ppp = full_output.pixels_per_point;
+        let paint_jobs = self.egui_ctx.tessellate(full_output.shapes, ppp);
+        let screen_desc = egui_wgpu::ScreenDescriptor {
+            size_in_pixels: [width, height],
+            pixels_per_point: ppp,
+        };
+
         if let Some(gpu) = &mut self.gpu {
-            gpu.render(self.current_plugin_index, self.show_info)?;
+            gpu.render(self.current_plugin_index, &paint_jobs, &screen_desc, &full_output.textures_delta)?;
         }
+
         Ok(())
     }
 
-    /// Handle window resize
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
         if let Some(gpu) = &mut self.gpu {
             gpu.resize(new_size);
@@ -101,7 +190,6 @@ impl App {
         }
     }
 
-    /// Apply current transparency level to the window (Windows only)
     #[cfg(target_os = "windows")]
     fn apply_transparency(&self, window: &Window) {
         if let Ok(window_handle) = window.window_handle() {
@@ -121,7 +209,6 @@ impl App {
         }
     }
 
-    /// Update transparency level by delta and apply if transparency is active (Windows only)
     #[cfg(target_os = "windows")]
     fn adjust_transparency_level(&mut self, increase: bool) {
         if increase {
@@ -137,7 +224,6 @@ impl App {
         }
     }
 
-    /// Handle keyboard input
     pub fn handle_key_press(&mut self, physical_key: PhysicalKey) {
         let old_show_info = self.show_info;
         self.show_info = false;
@@ -154,6 +240,9 @@ impl App {
                 if let Some(gpu) = &self.gpu {
                     self.current_plugin_index = (self.current_plugin_index + 1) % gpu.plugins.len();
                     println!("Switched to plugin: {}", gpu.plugins[self.current_plugin_index].name);
+                    self.transition_active = true;
+                    self.transition_time = 0.0;
+                    self.last_mode_switch = Instant::now();
                 }
             }
             PhysicalKey::Code(KeyCode::KeyF) => {
@@ -209,6 +298,7 @@ impl ApplicationHandler for App {
             .with_inner_size(winit::dpi::PhysicalSize::new(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT))
             .with_window_icon(Some(icon));
         let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
+
         self.window = Some(Arc::clone(&window));
         self.init_gpu(window);
         self.show_info = true;
@@ -217,9 +307,7 @@ impl ApplicationHandler for App {
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, window_id: winit::window::WindowId, event: WindowEvent) {
         if let Some(window) = &self.window {
-            if window.id() != window_id {
-                return;
-            }
+            if window.id() != window_id { return; }
         } else {
             return;
         }
@@ -243,7 +331,15 @@ impl ApplicationHandler for App {
                     event_loop.exit();
                 }
             }
-            WindowEvent::KeyboardInput { event: KeyEvent { physical_key, state: ElementState::Pressed, .. }, .. } => {
+            WindowEvent::KeyboardInput {
+                event: KeyEvent { physical_key: PhysicalKey::Code(KeyCode::F1), state: ElementState::Pressed, .. },
+                ..
+            } => {
+                self.settings.show_settings = !self.settings.show_settings;
+            }
+            WindowEvent::KeyboardInput {
+                event: KeyEvent { physical_key, state: ElementState::Pressed, .. }, ..
+            } => {
                 self.handle_key_press(physical_key);
             }
             WindowEvent::RedrawRequested => {

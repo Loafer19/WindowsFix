@@ -4,12 +4,9 @@ use crate::constants::*;
 use crate::error::{AppError, AppResult};
 use crate::plugin::Plugin;
 use crate::types::{Particle, VisUniforms};
-use glyphon::{
-    Attrs, Color, Family, FontSystem, Metrics, Resolution, Shaping,
-    SwashCache, TextArea, TextAtlas, TextBounds, TextRenderer,
-};
 use rustfft::{FftPlanner, num_complex::Complex};
 use std::mem;
+use std::time::Instant;
 use wgpu::util::DeviceExt;
 
 /// GPU resources and state
@@ -27,14 +24,13 @@ pub struct GpuResources {
     pub particle_render_pipeline: wgpu::RenderPipeline,
     pub bind_group: wgpu::BindGroup,
     pub plugins: Vec<Plugin>,
-    pub font_system: FontSystem,
-    pub swash_cache: SwashCache,
-    pub text_atlas: TextAtlas,
-    pub text_renderer: TextRenderer,
+    pub egui_renderer: egui_wgpu::Renderer,
+    start_time: Instant,
+    smoothed_fft: Vec<f32>,
+    pub bass_energy: f32,
 }
 
 impl GpuResources {
-    /// Initialize GPU resources asynchronously
     pub async fn new(window: std::sync::Arc<winit::window::Window>) -> AppResult<Self> {
         let size = window.inner_size();
 
@@ -97,10 +93,7 @@ impl GpuResources {
         let (particle_buffer, quad_buffer, particle_bind_group, compute_pipeline, particle_render_pipeline) =
             Self::create_particle_system(&device, &fft_buffer, &uniform_buffer, &render_pipeline_layout, config.format)?;
 
-        let font_system = FontSystem::new();
-        let swash_cache = SwashCache::new();
-        let mut text_atlas = TextAtlas::new(&device, &queue, config.format);
-        let text_renderer = TextRenderer::new(&mut text_atlas, &device, wgpu::MultisampleState::default(), None);
+        let egui_renderer = egui_wgpu::Renderer::new(&device, surface_format, None, 1);
 
         Ok(Self {
             surface,
@@ -116,25 +109,26 @@ impl GpuResources {
             particle_render_pipeline,
             bind_group,
             plugins,
-            font_system,
-            swash_cache,
-            text_atlas,
-            text_renderer,
+            egui_renderer,
+            start_time: Instant::now(),
+            smoothed_fft: vec![0.0f32; SAMPLE_SIZE / 2],
+            bass_energy: 0.0,
         })
     }
 
-    /// Create uniform buffer with initial values
     fn create_uniform_buffer(device: &wgpu::Device, width: u32, height: u32) -> wgpu::Buffer {
         let uniforms = VisUniforms {
             color: DEFAULT_COLOR,
             intensity: DEFAULT_INTENSITY,
             padding1: 0.0,
             resolution: [width as f32, height as f32],
-            mode: MODE_SPECTRUM,
+            mode: 0,
             padding2: [0; 3],
-            padding3: [0; 4],
+            time: 0.0,
+            bass_energy: 0.0,
+            smoothing_factor: 0.1,
+            gain: 1.5,
         };
-
         device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Uniform Buffer"),
             contents: bytemuck::cast_slice(&[uniforms]),
@@ -142,7 +136,6 @@ impl GpuResources {
         })
     }
 
-    /// Create FFT buffer for audio data
     fn create_fft_buffer(device: &wgpu::Device) -> wgpu::Buffer {
         let fft_data = vec![0.0f32; SAMPLE_SIZE];
         device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -152,7 +145,6 @@ impl GpuResources {
         })
     }
 
-    /// Create bind group layout for shaders
     fn create_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
         device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[
@@ -181,7 +173,6 @@ impl GpuResources {
         })
     }
 
-    /// Create bind group for shaders
     fn create_bind_group(
         device: &wgpu::Device,
         layout: &wgpu::BindGroupLayout,
@@ -191,20 +182,13 @@ impl GpuResources {
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout,
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: uniform_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: fft_buffer.as_entire_binding(),
-                },
+                wgpu::BindGroupEntry { binding: 0, resource: uniform_buffer.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 1, resource: fft_buffer.as_entire_binding() },
             ],
             label: Some("bind_group"),
         })
     }
 
-    /// Create particle system resources
     fn create_particle_system(
         device: &wgpu::Device,
         fft_buffer: &wgpu::Buffer,
@@ -229,10 +213,7 @@ impl GpuResources {
         });
 
         let quad_data: [[f32; 2]; 4] = [
-            [-0.01, -0.01],
-            [0.01, -0.01],
-            [0.01, 0.01],
-            [-0.01, 0.01],
+            [-0.01, -0.01], [0.01, -0.01], [0.01, 0.01], [-0.01, 0.01],
         ];
         let quad_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Quad Buffer"),
@@ -245,31 +226,19 @@ impl GpuResources {
                 wgpu::BindGroupLayoutEntry {
                     binding: 0,
                     visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: false },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
+                    ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Storage { read_only: false }, has_dynamic_offset: false, min_binding_size: None },
                     count: None,
                 },
                 wgpu::BindGroupLayoutEntry {
                     binding: 1,
                     visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: true },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
+                    ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Storage { read_only: true }, has_dynamic_offset: false, min_binding_size: None },
                     count: None,
                 },
                 wgpu::BindGroupLayoutEntry {
                     binding: 2,
                     visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
+                    ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: None },
                     count: None,
                 },
             ],
@@ -279,18 +248,9 @@ impl GpuResources {
         let particle_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &compute_bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: particle_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: fft_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: uniform_buffer.as_entire_binding(),
-                },
+                wgpu::BindGroupEntry { binding: 0, resource: particle_buffer.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 1, resource: fft_buffer.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 2, resource: uniform_buffer.as_entire_binding() },
             ],
             label: Some("particle_bind_group"),
         });
@@ -338,16 +298,8 @@ impl GpuResources {
                         array_stride: mem::size_of::<Particle>() as wgpu::BufferAddress,
                         step_mode: wgpu::VertexStepMode::Instance,
                         attributes: &[
-                            wgpu::VertexAttribute {
-                                offset: 0,
-                                shader_location: 1,
-                                format: wgpu::VertexFormat::Float32x2,
-                            },
-                            wgpu::VertexAttribute {
-                                offset: 32,
-                                shader_location: 2,
-                                format: wgpu::VertexFormat::Float32x4,
-                            },
+                            wgpu::VertexAttribute { offset: 0, shader_location: 1, format: wgpu::VertexFormat::Float32x2 },
+                            wgpu::VertexAttribute { offset: 32, shader_location: 2, format: wgpu::VertexFormat::Float32x4 },
                         ],
                     },
                 ],
@@ -371,18 +323,13 @@ impl GpuResources {
                 conservative: false,
             },
             depth_stencil: None,
-            multisample: wgpu::MultisampleState {
-                count: 1,
-                mask: !0,
-                alpha_to_coverage_enabled: false,
-            },
+            multisample: wgpu::MultisampleState { count: 1, mask: !0, alpha_to_coverage_enabled: false },
             multiview: None,
         });
 
         Ok((particle_buffer, quad_buffer, particle_bind_group, compute_pipeline, particle_render_pipeline))
     }
 
-    /// Resize the surface
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
         if new_size.width > 0 && new_size.height > 0 {
             self.config.width = new_size.width;
@@ -391,42 +338,69 @@ impl GpuResources {
         }
     }
 
-    /// Update uniforms and process audio data
     pub fn update(&mut self, uniforms: &VisUniforms, audio_data: &[f32]) {
-        self.queue.write_buffer(&self.uniform_buffer, 0, bytemuck::cast_slice(&[*uniforms]));
+        let time = self.start_time.elapsed().as_secs_f32();
+        let smoothing = uniforms.smoothing_factor.clamp(0.01, 0.3);
+        let gain = uniforms.gain.clamp(0.5, 5.0);
+
+        let mode = uniforms.mode as usize;
+        let is_spectrum = mode < self.plugins.len() && self.plugins[mode].is_spectrum;
 
         let data_to_write: Vec<f32>;
-        if self.plugins[uniforms.mode as usize].is_spectrum {
+        if is_spectrum {
             let mut magnitudes = self.compute_fft(audio_data);
             let len = magnitudes.len() as f32;
             for m in &mut magnitudes {
                 *m /= len;
-                *m = (*m * 50.0 * uniforms.intensity).min(1.0);
+                *m = (*m * 50.0 * uniforms.intensity * gain).min(1.0);
             }
-            data_to_write = magnitudes;
+            let n = magnitudes.len().min(self.smoothed_fft.len());
+            for i in 0..n {
+                self.smoothed_fft[i] = self.smoothed_fft[i] * (1.0 - smoothing) + magnitudes[i] * smoothing;
+            }
+            // Compute bass energy from first ~6 bins (~20-150 Hz)
+            let bass_bins = 6.min(self.smoothed_fft.len());
+            let raw_bass = self.smoothed_fft[..bass_bins].iter().sum::<f32>() / bass_bins as f32;
+            self.bass_energy = (raw_bass * 10.0).min(1.0);
+            data_to_write = self.smoothed_fft.clone();
         } else {
-            data_to_write = audio_data.to_vec();
+            let mut waveform = audio_data.to_vec();
+            for s in &mut waveform {
+                *s *= gain;
+            }
+            data_to_write = waveform;
         }
+
+        let mut updated = *uniforms;
+        updated.time = time;
+        updated.bass_energy = self.bass_energy;
+
+        self.queue.write_buffer(&self.uniform_buffer, 0, bytemuck::cast_slice(&[updated]));
         self.queue.write_buffer(&self.fft_buffer, 0, bytemuck::cast_slice(&data_to_write));
     }
 
-    /// Compute FFT magnitudes from audio data
     fn compute_fft(&self, audio_data: &[f32]) -> Vec<f32> {
         let mut buffer: Vec<Complex<f32>> = audio_data.iter().map(|&x| Complex::new(x, 0.0)).collect();
         let fft = FftPlanner::new().plan_fft_forward(audio_data.len());
         fft.process(&mut buffer);
-        buffer[0..audio_data.len() / 2]
-            .iter()
-            .map(|c| c.norm())
-            .collect()
+        buffer[0..audio_data.len() / 2].iter().map(|c| c.norm()).collect()
     }
 
-    /// Render a frame
-    pub fn render(&mut self, plugin_index: usize, show_info: bool) -> AppResult<()> {
+    pub fn render(
+        &mut self,
+        plugin_index: usize,
+        paint_jobs: &[egui::ClippedPrimitive],
+        screen_desc: &egui_wgpu::ScreenDescriptor,
+        textures_delta: &egui::TexturesDelta,
+    ) -> AppResult<()> {
         let output = self.surface.get_current_texture()?;
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
-
         let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+
+        // Update egui textures
+        for (id, image_delta) in &textures_delta.set {
+            self.egui_renderer.update_texture(&self.device, &self.queue, *id, image_delta);
+        }
 
         // Compute particles
         {
@@ -436,43 +410,17 @@ impl GpuResources {
             cpass.dispatch_workgroups(NUM_PARTICLES / COMPUTE_WORKGROUP_SIZE + 1, 1, 1);
         }
 
-        // Prepare text rendering before the render pass
-        if show_info {
-            let mut buffer = glyphon::Buffer::new(&mut self.font_system, Metrics::new(22.0, 28.0));
-            buffer.set_size(&mut self.font_system, self.config.width as f32, self.config.height as f32);
-            buffer.set_text(
-                &mut self.font_system,
-                "Controls:\nSpace / P  \u{2013} switch mode\nF          \u{2013} fullscreen\nT          \u{2013} toggle transparency\n[ / ]      \u{2013} transparency -/+10%\nUp / Down  \u{2013} intensity\nI          \u{2013} toggle info\nEsc        \u{2013} exit",
-                Attrs::new().family(Family::SansSerif),
-                Shaping::Basic,
-            );
-            buffer.shape_until_scroll(&mut self.font_system);
-            self.text_renderer
-                .prepare(
-                    &self.device,
-                    &self.queue,
-                    &mut self.font_system,
-                    &mut self.text_atlas,
-                    Resolution { width: self.config.width, height: self.config.height },
-                    [TextArea {
-                        buffer: &buffer,
-                        left: 10.0,
-                        top: 10.0,
-                        scale: 1.0,
-                        bounds: TextBounds {
-                            left: 0,
-                            top: 0,
-                            right: self.config.width as i32,
-                            bottom: self.config.height as i32,
-                        },
-                        default_color: Color::rgb(255, 255, 255),
-                    }],
-                    &mut self.swash_cache,
-                )
-                .expect("Failed to prepare text");
-        }
+        // Update egui vertex/index buffers
+        self.egui_renderer.update_buffers(&self.device, &self.queue, &mut encoder, paint_jobs, screen_desc);
 
-        // Render
+        // Collect references to avoid borrow conflicts inside the render pass block
+        let plugin_pipeline = &self.plugins[plugin_index].render_pipeline;
+        let bind_group = &self.bind_group;
+        let particle_render_pipeline = &self.particle_render_pipeline;
+        let quad_buffer = &self.quad_buffer;
+        let particle_buffer = &self.particle_buffer;
+
+        // Render pass
         {
             let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: None,
@@ -489,27 +437,29 @@ impl GpuResources {
                 occlusion_query_set: None,
             });
 
-            // Draw visualization using current plugin
-            let plugin = &self.plugins[plugin_index];
-            rpass.set_pipeline(&plugin.render_pipeline);
-            rpass.set_bind_group(0, &self.bind_group, &[]);
-            rpass.draw(0..3, 0..1); // Simple triangle for full-screen quad
+            // Visualization plugin
+            rpass.set_pipeline(plugin_pipeline);
+            rpass.set_bind_group(0, bind_group, &[]);
+            rpass.draw(0..3, 0..1);
 
-            // Draw particles (overlay)
-            rpass.set_pipeline(&self.particle_render_pipeline);
-            rpass.set_vertex_buffer(0, self.quad_buffer.slice(..));
-            rpass.set_vertex_buffer(1, self.particle_buffer.slice(..));
+            // Particles
+            rpass.set_pipeline(particle_render_pipeline);
+            rpass.set_vertex_buffer(0, quad_buffer.slice(..));
+            rpass.set_vertex_buffer(1, particle_buffer.slice(..));
+            rpass.set_bind_group(0, bind_group, &[]);
             rpass.draw(0..4, 0..NUM_PARTICLES);
 
-            // Render info text overlay
-            if show_info {
-                self.text_renderer.render(&self.text_atlas, &mut rpass).expect("Failed to render text");
-            }
+            // egui overlay
+            self.egui_renderer.render(&mut rpass, paint_jobs, screen_desc);
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
-        self.text_atlas.trim();
+
+        // Free egui textures
+        for id in &textures_delta.free {
+            self.egui_renderer.free_texture(id);
+        }
 
         Ok(())
     }

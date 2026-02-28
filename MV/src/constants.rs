@@ -29,13 +29,6 @@ pub const WINDOW_TITLE: &str = "Music Visualizer";
 pub const DEFAULT_COLOR: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
 pub const DEFAULT_INTENSITY: f32 = 1.0;
 
-/// Test audio frequency for sine wave generation
-pub const TEST_FREQUENCY: f32 = 440.0;
-pub const SAMPLE_RATE: f32 = 44100.0;
-
-/// Visualization modes
-pub const MODE_SPECTRUM: u32 = 0;
-
 /// Intensity adjustment step
 pub const INTENSITY_STEP: f32 = 0.1;
 

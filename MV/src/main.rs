@@ -6,6 +6,7 @@ mod constants;
 mod error;
 mod gpu;
 mod plugin;
+mod settings;
 mod types;
 
 use crate::audio::AudioHandler;
