@@ -1,3 +1,5 @@
+// Gradient bars – bars grow from the bottom, full width, gradient + reflection
+
 struct Uniforms {
     color: vec4<f32>,
     intensity: f32,
@@ -16,79 +18,82 @@ struct Uniforms {
 };
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
-
 @group(0) @binding(1) var<storage, read> data: array<f32>;
 
 @vertex
 fn vs_main(@builtin(vertex_index) idx: u32) -> @builtin(position) vec4<f32> {
-    var pos = vec2<f32>(0.0, 0.0);
-    if (idx == 0u) {
-        pos = vec2<f32>(-1.0, -1.0);
-    } else if (idx == 1u) {
-        pos = vec2<f32>(3.0, -1.0);
-    } else if (idx == 2u) {
-        pos = vec2<f32>(-1.0, 3.0);
-    }
-    return vec4<f32>(pos, 0.0, 1.0);
+    var pos = array<vec2<f32>, 3>(
+        vec2<f32>(-1.0, -1.0),
+        vec2<f32>( 3.0, -1.0),
+        vec2<f32>(-1.0,  3.0),
+    );
+    return vec4<f32>(pos[idx], 0.0, 1.0);
+}
+
+fn hsv_to_rgb(h: f32, s: f32, v: f32) -> vec3<f32> {
+    let hh = fract(h) * 6.0;
+    let i  = floor(hh);
+    let f  = hh - i;
+    let p  = v * (1.0 - s);
+    let q  = v * (1.0 - s * f);
+    let t  = v * (1.0 - s * (1.0 - f));
+    let ii = u32(i) % 6u;
+    if ii == 0u { return vec3<f32>(v, t, p); }
+    if ii == 1u { return vec3<f32>(q, v, p); }
+    if ii == 2u { return vec3<f32>(p, v, t); }
+    if ii == 3u { return vec3<f32>(p, q, v); }
+    if ii == 4u { return vec3<f32>(t, p, v); }
+    return vec3<f32>(v, p, q);
 }
 
 @fragment
 fn fs_main(@builtin(position) coord: vec4<f32>) -> @location(0) vec4<f32> {
-    let num_bars = 64.0;
-    let bar_width = uniforms.resolution.x / num_bars;
-    let bar_index = floor(coord.x / bar_width);
-    // FFT fills only the first half of the buffer; map bars to valid range
-    let valid_len = arrayLength(&data) / 2u;
-    let freq_idx = min(u32((bar_index / num_bars) * f32(valid_len)), valid_len - 1u);
+    let num_bars  = 64.0;
+    let gap_frac  = 0.08;
+    let slot_w    = uniforms.resolution.x / num_bars;
+    let bar_index = floor(coord.x / slot_w);
+    let local_x   = fract(coord.x / slot_w);
 
-    let magnitude = data[freq_idx] * uniforms.intensity;
-    let bar_height = magnitude * uniforms.resolution.y;
+    let valid_len  = arrayLength(&data) / 2u;
+    let freq_idx   = min(u32((bar_index / num_bars) * f32(valid_len)), valid_len - 1u);
+    let magnitude  = max(data[freq_idx] * uniforms.intensity, 0.0);
 
-    if (coord.y < bar_height) {
-        let normalized_height = coord.y / bar_height;
-        let normalized_freq = bar_index / num_bars;
+    let from_bottom = uniforms.resolution.y - coord.y;
+    let bar_h_px    = magnitude * uniforms.resolution.y * 0.92;
 
-        // Create gradient based on frequency and height
-        let hue1 = normalized_freq; // Low to high frequency
-        let hue2 = normalized_freq + 0.3; // Offset for gradient
-        let saturation = 0.9;
-        let value1 = normalized_height;
-        let value2 = normalized_height * 0.7;
-
-        let color1 = hsv_to_rgb(hue1, saturation, value1);
-        let color2 = hsv_to_rgb(hue2, saturation, value2);
-
-        // Vertical gradient within each bar
-        let gradient_factor = coord.y / bar_height;
-        let final_color = mix(color1, color2, gradient_factor);
-
-        return vec4<f32>(final_color, 1.0);
+    // Gap
+    if local_x > 1.0 - gap_frac {
+        let bg = from_bottom / uniforms.resolution.y * 0.03;
+        return vec4<f32>(bg, bg * 0.6, bg * 1.2, 1.0);
     }
 
-    // Subtle background pattern
-    let pattern = sin(coord.x * 0.01) * sin(coord.y * 0.01) * 0.02 + 0.02;
-    return vec4<f32>(pattern, pattern, pattern, 1.0);
-}
+    let norm_freq = bar_index / num_bars;
+    let hue_base  = norm_freq + uniforms.time * 0.03;
 
-fn hsv_to_rgb(h: f32, s: f32, v: f32) -> vec3<f32> {
-    let c = v * s;
-    let x = c * (1.0 - abs((h * 6.0) % 2.0 - 1.0));
-    let m = v - c;
+    if from_bottom <= bar_h_px && bar_h_px > 0.5 {
+        let height_norm = from_bottom / bar_h_px;   // 0=base 1=top
 
-    var rgb = vec3<f32>(0.0);
-    if (h < 1.0/6.0) {
-        rgb = vec3<f32>(c, x, 0.0);
-    } else if (h < 2.0/6.0) {
-        rgb = vec3<f32>(x, c, 0.0);
-    } else if (h < 3.0/6.0) {
-        rgb = vec3<f32>(0.0, c, x);
-    } else if (h < 4.0/6.0) {
-        rgb = vec3<f32>(0.0, x, c);
-    } else if (h < 5.0/6.0) {
-        rgb = vec3<f32>(x, 0.0, c);
-    } else {
-        rgb = vec3<f32>(c, 0.0, x);
+        // Two-tone vertical gradient: warm at base → cool at top
+        let col_bot = hsv_to_rgb(hue_base + 0.08, 0.95, 0.35 + height_norm * 0.3);
+        let col_top = hsv_to_rgb(hue_base - 0.08, 0.80, 0.70 + height_norm * 0.25);
+        let mixed   = mix(col_bot, col_top, height_norm);
+
+        // Bright top-cap line
+        let cap_norm = (bar_h_px - from_bottom) / bar_h_px;
+        let cap_glow = exp(-cap_norm * cap_norm * 400.0) * 0.8;
+        let final_col = mixed + vec3<f32>(cap_glow);
+        return vec4<f32>(clamp(final_col, vec3<f32>(0.0), vec3<f32>(1.0)), 1.0);
     }
 
-    return rgb + m;
+    // Reflection below
+    let reflect_dist = -(from_bottom - bar_h_px);
+    if reflect_dist > 0.0 && reflect_dist < bar_h_px * 0.30 && bar_h_px > 0.5 {
+        let fade = (1.0 - reflect_dist / (bar_h_px * 0.30)) * 0.18;
+        let rc   = hsv_to_rgb(hue_base, 0.80, fade);
+        return vec4<f32>(rc, 1.0);
+    }
+
+    // Background pattern
+    let bg = from_bottom / uniforms.resolution.y * 0.04;
+    return vec4<f32>(bg, bg * 0.6, bg * 1.2, 1.0);
 }
