@@ -79,7 +79,7 @@ jobs:
 
       - name: Rename TUI executable
         run: |
-          move WindowsFix-TUI.exe WindowsFix-TUI_${{ needs.check-version.outputs.version }}.exe
+          move WindowsFix-TUI.exe WindowsFix_TUI_${{ needs.check-version.outputs.version }}.exe
         shell: cmd
 
       - name: Install frontend dependencies
@@ -107,11 +107,17 @@ jobs:
           copy SM\src-tauri\target\release\services-manager.exe SM\src-tauri\target\release\ServicesManager_${{ needs.check-version.outputs.version }}-portable.exe
         shell: cmd
 
+      - name: Rename setup executable
+        run: |
+          cd SM\src-tauri\target\release\bundle\nsis
+          ren *.exe ServicesManager_${{ needs.check-version.outputs.version }}-setup.exe
+        shell: cmd
+
       - name: Upload setup artifact
         uses: actions/upload-artifact@v4
         with:
           name: setup-${{ matrix.platform }}
-          path: SM/src-tauri/target/release/bundle/nsis/*.exe
+          path: SM/src-tauri/target/release/bundle/nsis/ServicesManager_${{ needs.check-version.outputs.version }}-setup.exe
 
       - name: Upload portable artifact
         uses: actions/upload-artifact@v4

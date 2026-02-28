@@ -4,8 +4,7 @@
             <div class="flex items-center justify-between">
                 <h3 class="font-bold text-lg">{{ selectedService?.name }} - {{ selectedService?.displayName }}</h3>
                 <Button :text="'Reload Info'" class="btn btn-secondary btn-square btn-sm"
-                    :is-loading="selectedService?.isReloading"
-                    :disabled="selectedService?.isReloading"
+                    :is-loading="selectedService?.isReloading" :disabled="selectedService?.isReloading"
                     @clicked="$emit('reload', selectedService)">
                     <Icon name="resetRight" />
                 </Button>
@@ -24,7 +23,7 @@
                 <div v-if="selectedService.info.recommendation" class="md:col-span-2">
                     <label class="label label-text text-base-content/70">Recommendation</label>
                     <div class="alert alert-info">
-                <div class="whitespace-pre-line">{{ selectedService.info.recommendation }}</div>
+                        <div class="whitespace-pre-line">{{ selectedService.info.recommendation }}</div>
                     </div>
                 </div>
             </div>

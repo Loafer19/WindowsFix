@@ -1,101 +1,98 @@
 <template>
-  <div class="min-h-screen bg-base-200">
-    <div class="container mx-auto p-6">
+    <div class="min-h-screen bg-base-200">
+        <div class="container mx-auto p-6">
 
-      <div role="tablist" class="tabs tabs-boxed gap-2 p-0 mb-6">
-        <label class="tab gap-1 text-lg font-medium hover:text-info" v-for="tab in tabs" :key="tab.id">
-          <input v-model="activeTab" type="radio" name="tabs_main" class="tab" :value="tab.component" />
-          <Icon :name="tab.icon" />
-          {{ tab.name }}
-        </label>
-      </div>
+            <div role="tablist" class="tabs tabs-boxed gap-2 p-0 mb-6">
+                <label class="tab gap-1 text-lg font-medium hover:text-info" v-for="tab in tabs" :key="tab.id">
+                    <input v-model="activeTab" type="radio" name="tabs_main" class="tab" :value="tab.component" />
+                    <Icon :name="tab.icon" />
+                    {{ tab.name }}
+                </label>
+            </div>
 
-      <div class="card bg-base-100 card-border border-base-300 mb-6">
-        <div class="card-body">
-          <component :is="activeTab" :servicesByStatus="servicesByStatus" :servicesByStartupType="servicesByStartupType"
-              :totalServices="totalServices" :filteredCount="filteredServices.length" :totalCount="totalServices"
-              @filter="handleFilter" @refresh="refresh" />
+            <div class="card bg-base-100 card-border border-base-300 mb-6">
+                <div class="card-body">
+                    <component :is="activeTab" :servicesByStatus="servicesByStatus"
+                        :servicesByStartupType="servicesByStartupType" :totalServices="totalServices"
+                        :filteredCount="filteredServices.length" :totalCount="totalServices" :searchQuery="searchQuery"
+                        :selectedStatus="selectedStatus" :selectedStartupType="selectedStartupType"
+                        @filter="handleFilter" @refresh="refresh" @clear-filters="clearFilters" />
+                </div>
+            </div>
+
+            <div v-if="error" class="alert alert-error">
+                <Icon name="alarmWarning" />
+                <h3 class="font-bold">Failed to load services data</h3>
+                <div class="text-xs">Please try refreshing the page :(</div>
+            </div>
+
+            <div v-else-if="loading" class="card bg-base-100 card-border border-base-300">
+                <div class="card-body flex items-center justify-center">
+                    <span class="loading loading-spinner loading-lg"></span>
+                </div>
+            </div>
+
+            <div v-else class="card bg-base-100 card-border border-base-300">
+                <div class="overflow-x-auto">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Status</th>
+                                <th>Startup Type</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <template v-for="service in filteredServices" :key="service.name">
+                                <tr>
+                                    <td class="font-medium text-base-content">
+                                        <span class="tooltip tooltip-right" :data-tip="service.displayName">{{
+                                            service.name }}</span>
+                                    </td>
+                                    <td>
+                                        <div :class="getStatusBadgeClass(service.status)" class="badge">
+                                            {{ service.status }}
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <div :class="getStartupTypeBadgeClass(service.startupType)" class="badge">
+                                            {{ service.startupType }}
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <div class="flex items-center space-x-2">
+                                            <Button class="btn btn-info btn-sm btn-square"
+                                                @clicked="openModalForDetails(service)">
+                                                <Icon name="eye" />
+                                            </Button>
+
+                                            <Button v-if="service.startupType != 'Disabled'"
+                                                :disabled="service.isDisabling" :is-loading="service.isDisabling"
+                                                class="btn btn-success btn-sm btn-square" @clicked="openModal(service)">
+                                                <Icon name="shutDown" />
+                                            </Button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div v-if="filteredServices.length === 0" class="text-center py-12">
+                    <h3 class="mt-2 text-lg font-bold text-base-content">No services found</h3>
+                    <p class="mt-1 text-base-content/70">Try adjusting your search or filter criteria.</p>
+                </div>
+            </div>
         </div>
-      </div>
-
-      <div v-if="error" class="alert alert-error">
-        <Icon name="alarmWarning" />
-        <h3 class="font-bold">Failed to load services data</h3>
-        <div class="text-xs">Please try refreshing the page :(</div>
-      </div>
-
-      <div v-else-if="loading" class="card bg-base-100 card-border border-base-300">
-        <div class="card-body flex items-center justify-center">
-          <span class="loading loading-spinner loading-lg"></span>
-        </div>
-      </div>
-
-      <div v-else class="card bg-base-100 card-border border-base-300">
-        <div class="overflow-x-auto">
-          <table class="table">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Status</th>
-                <th>Startup Type</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              <template v-for="service in filteredServices" :key="service.name">
-                <tr>
-                  <td class="font-medium text-base-content">
-                    <span class="tooltip tooltip-right" :data-tip="service.displayName">{{ service.name }}</span>
-                  </td>
-                  <td>
-                    <div :class="getStatusBadgeClass(service.status)" class="badge">
-                      {{ service.status }}
-                    </div>
-                  </td>
-                  <td>
-                    <div :class="getStartupTypeBadgeClass(service.startupType)" class="badge">
-                      {{ service.startupType }}
-                    </div>
-                  </td>
-                  <td>
-                    <div class="flex items-center space-x-2">
-                      <Button class="btn btn-info btn-sm btn-square" @clicked="openModalForDetails(service)">
-                        <Icon name="eye" />
-                      </Button>
-
-                      <Button v-if="service.startupType != 'Disabled'" :disabled="service.isDisabling" :is-loading="service.isDisabling"
-                        class="btn btn-success btn-sm btn-square" @clicked="openModal(service)">
-                        <Icon name="shutDown" />
-                      </Button>
-                    </div>
-                  </td>
-                </tr>
-              </template>
-            </tbody>
-          </table>
-        </div>
-
-        <div v-if="filteredServices.length === 0" class="text-center py-12">
-          <h3 class="mt-2 text-lg font-bold text-base-content">No services found</h3>
-          <p class="mt-1 text-base-content/70">Try adjusting your search or filter criteria.</p>
-        </div>
-      </div>
     </div>
-  </div>
 
-  <ConfirmDisableModal
-    :showModal="showModal"
-    :selectedService="selectedService"
-    @close="showModal = false"
-    @confirm="confirmDisable"
-  />
+    <ConfirmDisableModal :showModal="showModal" :selectedService="selectedService" @close="showModal = false"
+        @confirm="confirmDisable" />
 
-  <ServiceDetailsModal
-    :showModal="showDetailsModal"
-    :selectedService="selectedServiceForDetails"
-    @close="showDetailsModal = false"
-    @reload="reloadInfo"
-  />
+    <ServiceDetailsModal :showModal="showDetailsModal" :selectedService="selectedServiceForDetails"
+        @close="showDetailsModal = false" @reload="reloadInfo" />
 </template>
 
 <script setup>
@@ -116,7 +113,6 @@ import {
     reloadServiceInfo,
 } from './services/api.js'
 
-// Tab system
 const tabs = ref([
     {
         id: 'filters',
@@ -139,7 +135,7 @@ const loading = ref(true)
 
 const { totalServices, servicesByStatus, servicesByStartupType } =
     useAnalytics(allServices)
-const { filteredServices, filterServices, handleFilter } =
+const { filteredServices, searchQuery, selectedStatus, selectedStartupType, filterServices, handleFilter, clearFilters } =
     useFiltering(allServices)
 const {
     showModal,
@@ -255,27 +251,26 @@ const getStartupTypeBadgeClass = (startupType) => {
 </script>
 
 <style scoped>
-/* Custom tab styling */
 .tabs-box {
-  box-shadow: none;
+    box-shadow: none;
 }
 
 .tab {
-  border: var(--border) solid var(--color-base-300) !important;
-  border-radius: var(--radius-field) !important;
-  box-shadow: none;
-  transition: all 0.2s ease;
+    border: var(--border) solid var(--color-base-300) !important;
+    border-radius: var(--radius-field) !important;
+    box-shadow: none;
+    transition: all 0.2s ease;
 }
 
 .tab:hover {
-  border-color: var(--color-primary) !important;
-  background-color: var(--color-primary) !important;
-  color: var(--color-primary-content) !important;
+    border-color: var(--color-primary) !important;
+    background-color: var(--color-primary) !important;
+    color: var(--color-primary-content) !important;
 }
 
 .tab:has(input:checked) {
-  border-color: var(--color-primary) !important;
-  background-color: var(--color-primary) !important;
-  color: var(--color-primary-content) !important;
+    border-color: var(--color-primary) !important;
+    background-color: var(--color-primary) !important;
+    color: var(--color-primary-content) !important;
 }
 </style>

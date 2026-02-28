@@ -1,6 +1,6 @@
 [package]
 name = "services-manager"
-version = "0.5.1"
+version = "0.5.0"
 description = "Windows Services Manager - A desktop application for managing Windows services"
 authors = ["Popelyshyn Ruslan"]
 edition = "2021"

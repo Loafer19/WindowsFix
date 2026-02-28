@@ -1,5 +1,5 @@
 <template>
-  <span v-html="iconSvg" :class="props.class"></span>
+    <span v-html="iconSvg" :class="props.class"></span>
 </template>
 
 <script setup>

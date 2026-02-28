@@ -1,12 +1,8 @@
 <template>
-  <button
-    :class="class"
-    :disabled="disabled"
-    @click="emit('clicked')"
-  >
-    <slot v-if="!isLoading">{{ text }}</slot>
-    <span v-else class="loading loading-spinner"></span>
-  </button>
+    <button :class="class" :disabled="disabled" @click="emit('clicked')">
+        <slot v-if="!isLoading">{{ text }}</slot>
+        <span v-else class="loading loading-spinner"></span>
+    </button>
 </template>
 
 <script setup>

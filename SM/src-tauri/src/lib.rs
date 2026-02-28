@@ -1,4 +1,3 @@
-// Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
@@ -62,7 +61,6 @@ fn get_default_service_info(service_name: &str, defaults: &HashMap<String, Servi
     }
 }
 
-// Data structures
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WindowsService {
     pub name: String,
@@ -86,7 +84,6 @@ pub struct ServicesResponse {
     pub services: Vec<WindowsService>,
 }
 
-// App state
 pub struct AppState {
     pub services_cache: Mutex<ServicesCache>,
     pub services_info: Mutex<HashMap<String, ServiceInfo>>,
@@ -98,7 +95,6 @@ pub struct ServicesCache {
     pub ttl: Duration,
 }
 
-// Tauri commands
 #[tauri::command]
 async fn get_services(state: State<'_, AppState>) -> Result<ServicesResponse, String> {
     let needs_refresh = {
