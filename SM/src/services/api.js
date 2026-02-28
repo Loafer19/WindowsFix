@@ -1,8 +1,7 @@
 import { invoke } from '@tauri-apps/api/core'
 
 async function loadServices() {
-    const result = await invoke('get_services')
-    return result.services
+    return await invoke('get_services')
 }
 
 async function refreshServices() {

@@ -22,11 +22,6 @@ pub struct ServiceInfo {
     pub recommendation: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ServicesResponse {
-    pub services: Vec<WindowsService>,
-}
-
 pub struct AppState {
     pub services_cache: Mutex<ServicesCache>,
     pub services_info: Mutex<HashMap<String, ServiceInfo>>,

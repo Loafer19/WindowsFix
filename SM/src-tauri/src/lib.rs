@@ -9,14 +9,14 @@ use std::time::{Duration, SystemTime};
 use tauri::State;
 
 use ai::fetch_service_info_from_ai;
-use models::{AppState, ServiceInfo, ServicesCache, ServicesResponse, WindowsService};
+use models::{AppState, ServiceInfo, ServicesCache, WindowsService};
 use windows_services::{
     disable_windows_service, get_default_service_info, get_windows_services, load_services_info,
     save_services_info,
 };
 
 #[tauri::command]
-async fn get_services(state: State<'_, AppState>) -> Result<ServicesResponse, String> {
+async fn get_services(state: State<'_, AppState>) -> Result<Vec<WindowsService>, String> {
     let needs_refresh = {
         let cache = state.services_cache.lock().unwrap();
         cache.data.is_empty()
@@ -38,9 +38,7 @@ async fn get_services(state: State<'_, AppState>) -> Result<ServicesResponse, St
     }
 
     let cache = state.services_cache.lock().unwrap();
-    Ok(ServicesResponse {
-        services: cache.data.clone(),
-    })
+    Ok(cache.data.clone())
 }
 
 #[tauri::command]
