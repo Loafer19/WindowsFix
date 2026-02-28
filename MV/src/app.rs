@@ -93,12 +93,38 @@ impl App {
             }
         }
 
-        // Auto-switch modes
+        // Sync opacity slider → transparency_level and re-apply if transparent
+        #[cfg(target_os = "windows")]
+        {
+            let slider_level = (self.settings.transparency * 255.0).clamp(25.0, 255.0) as u8;
+            if slider_level != self.transparency_level {
+                self.transparency_level = slider_level;
+                if self.transparent {
+                    if let Some(window) = self.window.clone() {
+                        self.apply_transparency(&window);
+                    }
+                }
+            }
+        }
+
+        // Auto-switch modes (skip disabled plugins)
         if self.settings.auto_switch_modes {
             let switch_dur = Duration::from_secs_f32(self.settings.mode_switch_seconds);
             if self.last_mode_switch.elapsed() > switch_dur {
                 if let Some(gpu) = &self.gpu {
-                    self.current_plugin_index = (self.current_plugin_index + 1) % gpu.plugins.len();
+                    let num = gpu.plugins.len();
+                    let mut next = (self.current_plugin_index + 1) % num;
+                    let mut found = false;
+                    for _ in 0..num {
+                        if !self.settings.disabled_plugins.contains(&gpu.plugins[next].name) {
+                            found = true;
+                            break;
+                        }
+                        next = (next + 1) % num;
+                    }
+                    if found {
+                        self.current_plugin_index = next;
+                    }
                     self.last_mode_switch = Instant::now();
                     self.transition_active = true;
                     self.transition_time = 0.0;
@@ -132,13 +158,21 @@ impl App {
             .map(|g| (g.config.width, g.config.height))
             .unwrap_or((DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT));
 
-        let show_info = self.show_info;
         let plugin_name = self.gpu.as_ref()
             .and_then(|g| g.plugins.get(self.current_plugin_index))
             .map(|p| p.name.clone())
             .unwrap_or_default();
 
+        // Collect plugin groups before the closure to avoid borrowing self.gpu inside it.
+        let plugin_groups = {
+            let names: Vec<String> = self.gpu.as_ref()
+                .map(|g| g.plugins.iter().map(|p| p.name.clone()).collect())
+                .unwrap_or_default();
+            build_plugin_groups(&names)
+        };
+
         let mut settings_copy = self.settings.clone();
+        let mut show_info = self.show_info;
         // Take accumulated input; set screen_rect if not already set
         let mut raw_input = std::mem::take(&mut self.egui_raw_input);
         if raw_input.screen_rect.is_none() {
@@ -148,45 +182,66 @@ impl App {
             ));
         }
         let full_output = self.egui_ctx.run(raw_input, |ctx| {
-            if show_info {
-                egui::Window::new("Controls")
-                    .resizable(false)
-                    .show(ctx, |ui| {
-                        ui.label(format!("Mode: {}", plugin_name));
-                        ui.separator();
-                        ui.label("Space/P  – switch mode");
-                        ui.label("F1       – settings");
-                        ui.label("F        – fullscreen");
-                        ui.label("T        – toggle transparency");
-                        ui.label("Up/Down  – intensity");
-                        ui.label("I        – toggle info");
-                        ui.label("Esc      – exit");
+            // --- Info / Controls window ---
+            egui::Window::new("ℹ Controls")
+                .open(&mut show_info)
+                .resizable(false)
+                .show(ctx, |ui| {
+                    ui.label(format!("Mode: {}", plugin_name));
+                    ui.separator();
+                    ui.label("Space/P  – switch mode");
+                    ui.label("F1       – settings");
+                    ui.label("F        – fullscreen");
+                    ui.label("T        – toggle transparency");
+                    ui.label("[/]      – opacity level");
+                    ui.label("Up/Down  – intensity");
+                    ui.label("I        – toggle info");
+                    ui.label("Esc      – exit");
+                });
+
+            // --- Settings window ---
+            egui::Window::new("⚙ Settings")
+                .open(&mut settings_copy.show_settings)
+                .resizable(true)
+                .show(ctx, |ui| {
+                    ui.add(egui::Slider::new(&mut settings_copy.smoothing_factor, 0.01..=0.3).text("Smoothing"));
+                    ui.add(egui::Slider::new(&mut settings_copy.gain, 0.5..=5.0).text("Gain"));
+                    ui.add(egui::Slider::new(&mut settings_copy.bass_boost, 0.0..=2.0).text("Bass Boost"));
+                    ui.add(egui::Slider::new(&mut settings_copy.transparency, 0.1..=1.0).text("Opacity"));
+                    ui.separator();
+                    ui.label("Color Scheme:");
+                    ui.horizontal(|ui| {
+                        ui.selectable_value(&mut settings_copy.color_scheme, ColorScheme::Classic, "Classic");
+                        ui.selectable_value(&mut settings_copy.color_scheme, ColorScheme::Neon,    "Neon");
+                        ui.selectable_value(&mut settings_copy.color_scheme, ColorScheme::Pastel,  "Pastel");
+                        ui.selectable_value(&mut settings_copy.color_scheme, ColorScheme::Fire,    "Fire");
                     });
-            }
-            if settings_copy.show_settings {
-                egui::Window::new("⚙ Settings")
-                    .resizable(true)
-                    .show(ctx, |ui| {
-                        ui.add(egui::Slider::new(&mut settings_copy.smoothing_factor, 0.01..=0.3).text("Smoothing"));
-                        ui.add(egui::Slider::new(&mut settings_copy.gain, 0.5..=5.0).text("Gain"));
-                        ui.add(egui::Slider::new(&mut settings_copy.bass_boost, 0.0..=2.0).text("Bass Boost"));
-                        ui.separator();
-                        ui.label("Color Scheme:");
-                        ui.horizontal(|ui| {
-                            ui.selectable_value(&mut settings_copy.color_scheme, ColorScheme::Classic, "Classic");
-                            ui.selectable_value(&mut settings_copy.color_scheme, ColorScheme::Neon,    "Neon");
-                            ui.selectable_value(&mut settings_copy.color_scheme, ColorScheme::Pastel,  "Pastel");
-                            ui.selectable_value(&mut settings_copy.color_scheme, ColorScheme::Fire,    "Fire");
+                    ui.separator();
+                    ui.checkbox(&mut settings_copy.auto_switch_modes, "Auto-switch modes");
+                    if settings_copy.auto_switch_modes {
+                        ui.add(egui::Slider::new(&mut settings_copy.mode_switch_seconds, 5.0..=120.0).text("Switch interval (s)"));
+                    }
+                    ui.separator();
+                    ui.label("Effects:");
+                    for (group_name, names) in &plugin_groups {
+                        ui.collapsing(group_name.as_str(), |ui| {
+                            for name in names {
+                                let mut enabled = !settings_copy.disabled_plugins.contains(name);
+                                if ui.checkbox(&mut enabled, name.as_str()).changed() {
+                                    if enabled {
+                                        settings_copy.disabled_plugins.remove(name);
+                                    } else {
+                                        settings_copy.disabled_plugins.insert(name.clone());
+                                    }
+                                }
+                            }
                         });
-                        ui.separator();
-                        ui.checkbox(&mut settings_copy.auto_switch_modes, "Auto-switch modes");
-                        if settings_copy.auto_switch_modes {
-                            ui.add(egui::Slider::new(&mut settings_copy.mode_switch_seconds, 5.0..=120.0).text("Switch interval (s)"));
-                        }
-                    });
-            }
+                    }
+                });
         });
 
+        // Write back values that the egui closures may have changed.
+        self.show_info = show_info;
         self.settings = settings_copy;
 
         let ppp = full_output.pixels_per_point;
@@ -219,7 +274,8 @@ impl App {
                     if self.transparent {
                         let ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
                         SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex_style | WS_EX_LAYERED.0 as isize);
-                        let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), self.transparency_level, LAYERED_WINDOW_ATTRIBUTES_FLAGS(2));
+                        let alpha = (self.settings.transparency * 255.0).clamp(25.0, 255.0) as u8;
+                        let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), alpha, LAYERED_WINDOW_ATTRIBUTES_FLAGS(2));
                     } else {
                         let ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
                         SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex_style & !(WS_EX_LAYERED.0 as isize));
@@ -231,12 +287,14 @@ impl App {
 
     #[cfg(target_os = "windows")]
     fn adjust_transparency_level(&mut self, increase: bool) {
+        let step = TRANSPARENCY_STEP as f32 / 255.0;
         if increase {
-            self.transparency_level = self.transparency_level.saturating_add(TRANSPARENCY_STEP);
+            self.settings.transparency = (self.settings.transparency + step).min(1.0);
         } else {
-            self.transparency_level = self.transparency_level.saturating_sub(TRANSPARENCY_STEP);
+            self.settings.transparency = (self.settings.transparency - step).max(0.1);
         }
-        println!("Transparency: {}%", self.transparency_level as u32 * 100 / 255);
+        self.transparency_level = (self.settings.transparency * 255.0) as u8;
+        println!("Opacity: {}%", (self.settings.transparency * 100.0) as u32);
         if self.transparent {
             if let Some(window) = self.window.clone() {
                 self.apply_transparency(&window);
@@ -301,7 +359,19 @@ impl App {
             }
             PhysicalKey::Code(KeyCode::Space) | PhysicalKey::Code(KeyCode::KeyP) => {
                 if let Some(gpu) = &self.gpu {
-                    self.current_plugin_index = (self.current_plugin_index + 1) % gpu.plugins.len();
+                    let num = gpu.plugins.len();
+                    let mut next = (self.current_plugin_index + 1) % num;
+                    let mut found = false;
+                    for _ in 0..num {
+                        if !self.settings.disabled_plugins.contains(&gpu.plugins[next].name) {
+                            found = true;
+                            break;
+                        }
+                        next = (next + 1) % num;
+                    }
+                    if found {
+                        self.current_plugin_index = next;
+                    }
                     println!("Switched to plugin: {}", gpu.plugins[self.current_plugin_index].name);
                     self.transition_active = true;
                     self.transition_time = 0.0;
@@ -430,4 +500,38 @@ impl ApplicationHandler for App {
             window.request_redraw();
         }
     }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Plugin grouping helpers
+// ──────────────────────────────────────────────────────────────────────────────
+
+/// Assign a display group to a plugin based on its name.
+fn plugin_group(name: &str) -> &'static str {
+    let n = name.to_lowercase();
+    if n.ends_with("_3d") || n.contains("3d") {
+        "🔮 3D Effects"
+    } else if n.contains("waveform") || n.contains("oscilloscope") {
+        "🌊 Waveform"
+    } else if n.contains("spectrum") || n.contains("bars") || n.contains("gradient") || n.contains("circular") {
+        "🎵 Spectrum"
+    } else {
+        "✨ Abstract"
+    }
+}
+
+/// Build an ordered list of `(group_label, sorted_plugin_names)` from a flat name list.
+fn build_plugin_groups(names: &[String]) -> Vec<(String, Vec<String>)> {
+    const ORDER: &[&str] = &["🎵 Spectrum", "🌊 Waveform", "🔮 3D Effects", "✨ Abstract"];
+    let mut map: std::collections::HashMap<&'static str, Vec<String>> = std::collections::HashMap::new();
+    for name in names {
+        let group = plugin_group(name);
+        map.entry(group).or_default().push(name.clone());
+    }
+    for names in map.values_mut() {
+        names.sort();
+    }
+    ORDER.iter()
+        .filter_map(|&g| map.remove(g).map(|ns| (g.to_string(), ns)))
+        .collect()
 }
