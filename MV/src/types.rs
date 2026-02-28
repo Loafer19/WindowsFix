@@ -9,11 +9,15 @@ pub struct VisUniforms {
     pub padding1: f32,
     pub resolution: [f32; 2],
     pub mode: u32,
+    pub padding3a: u32,
+    pub padding3b: u32,
+    pub padding3c: u32,
     pub padding2: [u32; 3],
     pub time: f32,
     pub bass_energy: f32,
     pub smoothing_factor: f32,
     pub gain: f32,
+    pub padding4: f32,
 }
 
 /// Particle structure for GPU

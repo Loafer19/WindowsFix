@@ -1,8 +1,18 @@
 struct Uniforms {
     color: vec4<f32>,
     intensity: f32,
+    padding1: f32,
     resolution: vec2<f32>,
     mode: u32,
+    padding3a: u32,
+    padding3b: u32,
+    padding3c: u32,
+    padding2: vec3<u32>,
+    time: f32,
+    bass_energy: f32,
+    smoothing_factor: f32,
+    gain: f32,
+    padding4: f32,
 };
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;

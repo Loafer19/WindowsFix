@@ -34,36 +34,33 @@ fn vs_main(@builtin(vertex_index) idx: u32) -> @builtin(position) vec4<f32> {
 
 @fragment
 fn fs_main(@builtin(position) coord: vec4<f32>) -> @location(0) vec4<f32> {
-    let num_bars = 32.0;
-    let bar_width = uniforms.resolution.x / num_bars;
-    let bar_index = floor(coord.x / bar_width);
-    // FFT fills only the first half of the buffer; map bars to valid range
-    let valid_len = arrayLength(&data) / 2u;
-    let freq_idx = min(u32((bar_index / num_bars) * f32(valid_len)), valid_len - 1u);
+    let x = coord.x / uniforms.resolution.x;
+    let data_len = arrayLength(&data);
+    let idx = min(u32(x * f32(data_len)), data_len - 1u);
+    let sample = data[idx] * uniforms.intensity;
+    let waveform_y = (sample + 1.0) * 0.5 * uniforms.resolution.y;
 
-    let magnitude = data[freq_idx] * uniforms.intensity;
-    let bar_height = magnitude * uniforms.resolution.y;
+    let distance = abs(coord.y - waveform_y);
+    let glow_width = 3.0;
 
-    // Create 3D effect with shading
-    if (coord.y < bar_height) {
-        let normalized_height = coord.y / bar_height;
-        let bar_x = bar_index * bar_width;
+    if (distance < glow_width) {
+        let alpha = 1.0 - (distance / glow_width);
+        let glow_intensity = alpha * alpha; // Quadratic falloff
 
-        // Add some perspective effect
-        let depth = 1.0 - normalized_height * 0.3;
-        let shade = mix(0.3, 1.0, depth);
+        // Create a glowing effect with color variation
+        let hue = sample * 0.5 + 0.5; // Map sample to hue
+        let rgb = hsv_to_rgb(hue, 0.8, glow_intensity);
 
-        // Color based on frequency and height
-        let hue = bar_index / num_bars;
-        let saturation = 0.8;
-        let value = normalized_height * shade;
-
-        return vec4<f32>(hsv_to_rgb(hue, saturation, value), 1.0);
+        return vec4<f32>(rgb, glow_intensity);
     }
 
-    // Background with subtle gradient
-    let bg_gradient = coord.y / uniforms.resolution.y * 0.1;
-    return vec4<f32>(bg_gradient, bg_gradient, bg_gradient, 1.0);
+    // Subtle background glow
+    let bg_distance = min(
+        abs(coord.y - uniforms.resolution.y * 0.5),
+        min(coord.x, uniforms.resolution.x - coord.x)
+    );
+    let bg_glow = exp(-bg_distance * 0.01) * 0.05;
+    return vec4<f32>(bg_glow, bg_glow, bg_glow, 1.0);
 }
 
 fn hsv_to_rgb(h: f32, s: f32, v: f32) -> vec3<f32> {

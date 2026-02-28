@@ -123,11 +123,15 @@ impl GpuResources {
             padding1: 0.0,
             resolution: [width as f32, height as f32],
             mode: 0,
+            padding3a: 0,
+            padding3b: 0,
+            padding3c: 0,
             padding2: [0; 3],
             time: 0.0,
             bass_energy: 0.0,
             smoothing_factor: 0.1,
             gain: 1.5,
+            padding4: 0.0,
         };
         device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Uniform Buffer"),

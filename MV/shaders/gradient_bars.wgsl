@@ -34,7 +34,7 @@ fn vs_main(@builtin(vertex_index) idx: u32) -> @builtin(position) vec4<f32> {
 
 @fragment
 fn fs_main(@builtin(position) coord: vec4<f32>) -> @location(0) vec4<f32> {
-    let num_bars = 32.0;
+    let num_bars = 64.0;
     let bar_width = uniforms.resolution.x / num_bars;
     let bar_index = floor(coord.x / bar_width);
     // FFT fills only the first half of the buffer; map bars to valid range
@@ -44,26 +44,30 @@ fn fs_main(@builtin(position) coord: vec4<f32>) -> @location(0) vec4<f32> {
     let magnitude = data[freq_idx] * uniforms.intensity;
     let bar_height = magnitude * uniforms.resolution.y;
 
-    // Create 3D effect with shading
     if (coord.y < bar_height) {
         let normalized_height = coord.y / bar_height;
-        let bar_x = bar_index * bar_width;
+        let normalized_freq = bar_index / num_bars;
 
-        // Add some perspective effect
-        let depth = 1.0 - normalized_height * 0.3;
-        let shade = mix(0.3, 1.0, depth);
+        // Create gradient based on frequency and height
+        let hue1 = normalized_freq; // Low to high frequency
+        let hue2 = normalized_freq + 0.3; // Offset for gradient
+        let saturation = 0.9;
+        let value1 = normalized_height;
+        let value2 = normalized_height * 0.7;
 
-        // Color based on frequency and height
-        let hue = bar_index / num_bars;
-        let saturation = 0.8;
-        let value = normalized_height * shade;
+        let color1 = hsv_to_rgb(hue1, saturation, value1);
+        let color2 = hsv_to_rgb(hue2, saturation, value2);
 
-        return vec4<f32>(hsv_to_rgb(hue, saturation, value), 1.0);
+        // Vertical gradient within each bar
+        let gradient_factor = coord.y / bar_height;
+        let final_color = mix(color1, color2, gradient_factor);
+
+        return vec4<f32>(final_color, 1.0);
     }
 
-    // Background with subtle gradient
-    let bg_gradient = coord.y / uniforms.resolution.y * 0.1;
-    return vec4<f32>(bg_gradient, bg_gradient, bg_gradient, 1.0);
+    // Subtle background pattern
+    let pattern = sin(coord.x * 0.01) * sin(coord.y * 0.01) * 0.02 + 0.02;
+    return vec4<f32>(pattern, pattern, pattern, 1.0);
 }
 
 fn hsv_to_rgb(h: f32, s: f32, v: f32) -> vec3<f32> {
