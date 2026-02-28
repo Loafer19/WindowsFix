@@ -15,8 +15,7 @@
                     <component :is="activeTab" :servicesByStatus="servicesByStatus"
                         :servicesByStartupType="servicesByStartupType" :totalServices="totalServices"
                         :filteredCount="filteredServices.length" :totalCount="totalServices" :searchQuery="searchQuery"
-                        :selectedStatus="selectedStatus" :selectedStartupType="selectedStartupType"
-                        :history="history"
+                        :selectedStatus="selectedStatus" :selectedStartupType="selectedStartupType" :history="history"
                         @filter="handleFilter" @refresh="refresh" @clear-filters="clearFilters"
                         @clear-history="clearHistory" />
                 </div>
@@ -138,6 +137,7 @@ const tabs = ref([
         icon: 'history',
     },
 ])
+
 const activeTab = ref(markRaw(FiltersTab))
 
 const allServices = ref([])
@@ -146,6 +146,7 @@ const loading = ref(true)
 
 const { totalServices, servicesByStatus, servicesByStartupType } =
     useAnalytics(allServices)
+
 const {
     filteredServices,
     searchQuery,
@@ -155,6 +156,7 @@ const {
     handleFilter,
     clearFilters,
 } = useFiltering(allServices)
+
 const {
     showModal,
     selectedService,
@@ -164,6 +166,7 @@ const {
     confirmDisable: confirmDisableModal,
     openModalForDetails,
 } = useModals()
+
 const { history, addToHistory, clearHistory } = useHistory()
 
 const confirmDisable = () => confirmDisableModal(disable)

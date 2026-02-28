@@ -182,24 +182,38 @@ impl App {
             ));
         }
         let full_output = self.egui_ctx.run(raw_input, |ctx| {
-            // --- Info / Controls window ---
             egui::Window::new("ℹ Controls")
                 .open(&mut show_info)
                 .resizable(false)
+                .default_width(280.0)
                 .show(ctx, |ui| {
-                    ui.label(format!("Mode: {}", plugin_name));
+                    ui.vertical_centered(|ui| {
+                        ui.heading(format!("Mode: {}", plugin_name));
+                    });
                     ui.separator();
-                    ui.label("Space/P  – switch mode");
-                    ui.label("F1       – settings");
-                    ui.label("F        – fullscreen");
-                    ui.label("T        – toggle transparency");
-                    ui.label("[/]      – opacity level");
-                    ui.label("Up/Down  – intensity");
-                    ui.label("I        – toggle info");
-                    ui.label("Esc      – exit");
+                    ui.label("🎮 Controls:");
+                    ui.add_space(5.0);
+
+                    let controls = [
+                        ("F1", "Toggle info panel"),
+                        ("F2", "Open settings"),
+                        ("F11", "Toggle fullscreen"),
+                        ("Space / M", "Switch visualization mode"),
+                        ("T", "Toggle transparency"),
+                        ("← / →", "Adjust opacity"),
+                        ("↑ / ↓", "Adjust intensity"),
+                        ("Esc", "Exit application"),
+                    ];
+
+                    for (key, desc) in controls {
+                        ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new(key).monospace().strong());
+                            ui.label("–");
+                            ui.label(desc);
+                        });
+                    }
                 });
 
-            // --- Settings window ---
             egui::Window::new("⚙ Settings")
                 .open(&mut settings_copy.show_settings)
                 .resizable(true)
@@ -346,18 +360,8 @@ impl App {
     }
 
     pub fn handle_key_press(&mut self, physical_key: PhysicalKey) {
-        let old_show_info = self.show_info;
-        self.show_info = false;
         match physical_key {
-            PhysicalKey::Code(KeyCode::KeyI) => {
-                self.show_info = !old_show_info;
-                if self.show_info {
-                    self.info_timer = Some(Instant::now());
-                } else {
-                    self.info_timer = None;
-                }
-            }
-            PhysicalKey::Code(KeyCode::Space) | PhysicalKey::Code(KeyCode::KeyP) => {
+            PhysicalKey::Code(KeyCode::Space) | PhysicalKey::Code(KeyCode::KeyM) => {
                 if let Some(gpu) = &self.gpu {
                     let num = gpu.plugins.len();
                     let mut next = (self.current_plugin_index + 1) % num;
@@ -378,17 +382,6 @@ impl App {
                     self.last_mode_switch = Instant::now();
                 }
             }
-            PhysicalKey::Code(KeyCode::KeyF) => {
-                if let Some(window) = &self.window {
-                    if window.fullscreen().is_some() {
-                        window.set_fullscreen(None);
-                        window.set_cursor_visible(true);
-                    } else {
-                        window.set_fullscreen(Some(Fullscreen::Borderless(None)));
-                        window.set_cursor_visible(false);
-                    }
-                }
-            }
             PhysicalKey::Code(KeyCode::KeyT) => {
                 if let Some(window) = &self.window {
                     self.transparent = !self.transparent;
@@ -400,11 +393,11 @@ impl App {
                     }
                 }
             }
-            PhysicalKey::Code(KeyCode::BracketLeft) => {
+            PhysicalKey::Code(KeyCode::ArrowLeft) => {
                 #[cfg(target_os = "windows")]
                 self.adjust_transparency_level(false);
             }
-            PhysicalKey::Code(KeyCode::BracketRight) => {
+            PhysicalKey::Code(KeyCode::ArrowRight) => {
                 #[cfg(target_os = "windows")]
                 self.adjust_transparency_level(true);
             }
@@ -413,6 +406,17 @@ impl App {
             }
             PhysicalKey::Code(KeyCode::ArrowDown) => {
                 self.uniforms.intensity = (self.uniforms.intensity - INTENSITY_STEP).max(0.0);
+            }
+            PhysicalKey::Code(KeyCode::F11) => {
+                if let Some(window) = &self.window {
+                    if window.fullscreen().is_some() {
+                        window.set_fullscreen(None);
+                        window.set_cursor_visible(true);
+                    } else {
+                        window.set_fullscreen(Some(Fullscreen::Borderless(None)));
+                        window.set_cursor_visible(false);
+                    }
+                }
             }
             _ => {}
         }
@@ -434,8 +438,7 @@ impl ApplicationHandler for App {
 
         self.window = Some(Arc::clone(&window));
         self.init_gpu(window);
-        self.show_info = true;
-        self.info_timer = Some(Instant::now());
+        self.show_info = false;
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, window_id: winit::window::WindowId, event: WindowEvent) {
@@ -469,6 +472,18 @@ impl ApplicationHandler for App {
             }
             WindowEvent::KeyboardInput {
                 event: KeyEvent { physical_key: PhysicalKey::Code(KeyCode::F1), state: ElementState::Pressed, .. },
+                ..
+            } => {
+                let old_show_info = self.show_info;
+                self.show_info = !old_show_info;
+                if self.show_info {
+                    self.info_timer = Some(Instant::now());
+                } else {
+                    self.info_timer = None;
+                }
+            }
+            WindowEvent::KeyboardInput {
+                event: KeyEvent { physical_key: PhysicalKey::Code(KeyCode::F2), state: ElementState::Pressed, .. },
                 ..
             } => {
                 self.settings.show_settings = !self.settings.show_settings;

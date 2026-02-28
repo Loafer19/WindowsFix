@@ -25,43 +25,25 @@ A Rust application that visualises audio input in real-time using GPU-accelerate
 - Window transparency toggle (Windows)
 - Adjustable intensity
 
-| plasma_sphere_3d | oscilloscope |
-|-------|-------|
-| ![web](./.github/screenshots/mv/plasma_sphere_3d.jpg) | ![web](./.github/screenshots/mv/oscilloscope.jpg) |
+| plasma_sphere_3d | oscilloscope | depth_wave_3d |
+|-------|-------|-------|
+| ![web](./.github/screenshots/mv/plasma_sphere_3d.jpg) | ![web](./.github/screenshots/mv/oscilloscope.jpg) | ![web](./.github/screenshots/mv/depth_wave_3d.jpg) |
 
 ### Running
 
-```bash
-cd MV
-cargo run
-```
-
-Select your audio input device when prompted – the visualiser window opens immediately.
+Select your audio input/output device when prompted – the visualiser window opens immediately
 
 ### Keyboard Controls
 
 | Key | Action |
 |-----|--------|
-| `F1` | Toggle Settings |
-| `I` | Toggle info overlay |
-| `Space` / `P` | Cycle through visualisation modes |
-| `F` | Toggle fullscreen |
-| `T` | Toggle window transparency |
-| `↑` / `↓` | Increase / decrease intensity |
-| `[` / `]` | Decrease / increase transparency level (Windows) |
-| `Esc` | Exit (or leave fullscreen) |
+| `F1` | Toggle info panel |
+| `F2` | Open settings |
+| `F11` | Toggle fullscreen |
+| `Space` / `M` | Switch visualization mode |
+| `T` | Toggle transparency |
+| `←` / `→` | Adjust opacity |
+| `↑` / `↓` | Adjust intensity |
+| `Esc` | Exit application |
 
-> Controls are shown on screen for the first 10 seconds after launch.
-
-## Scripts
-
-They can:
-
-- explorer
-  - set grouping to none
-  - unpin useless folders
-  - unpin network tab
-
-```bash
-Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
-```
+> Press F1 to show controls.

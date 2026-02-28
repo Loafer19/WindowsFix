@@ -4,7 +4,8 @@
             <div class="bg-base-200 rounded-lg p-4">
                 <div class="capitalize font-medium">Disabled</div>
                 <div class="text-2xl text-neutral">{{ history.length }}</div>
-                <div class="text-base-content/70">services disabled</div>
+                <div class="text-base-content/70">{{ ((history.length / totalServices) * 100).toFixed(1) }}% of total</div>
+                <progress class="progress progress-neutral h-2 mt-2" :value="((history.length / totalServices) * 100)" max="100"></progress>
             </div>
         </div>
     </div>
@@ -17,9 +18,9 @@
         </Button>
     </div>
 
-    <div v-if="history.length === 0" class="text-center py-12">
+    <div v-if="history.length === 0" class="text-center py-8">
         <h3 class="mt-2 text-lg font-bold text-base-content">No history yet</h3>
-        <p class="mt-1 text-base-content/70">Services you disable will appear here.</p>
+        <p class="mt-1 text-base-content/70">Services you disable will appear here :)</p>
     </div>
 
     <div v-else class="overflow-x-auto">
@@ -51,6 +52,10 @@ const props = defineProps({
         type: Array,
         default: () => [],
     },
+    totalServices: {
+        type: Number,
+        default: 0,
+    },
 })
 
 const emit = defineEmits(['clear-history'])
@@ -60,6 +65,6 @@ const clearHistory = () => {
 }
 
 const formatDate = (isoString) => {
-    return new Date(isoString).toLocaleString()
+    return new Date(isoString).toLocaleString('en-GB', { hour12: false })
 }
 </script>

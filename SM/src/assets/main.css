@@ -6,6 +6,7 @@
     themes: dim;
 }
 
+/* biome-ignore lint: DaisyUI stuff */
 @plugin "daisyui/theme" {
     /* biome-ignore lint: DaisyUI stuff */
     name: "dim";
