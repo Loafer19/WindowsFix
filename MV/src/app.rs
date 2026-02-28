@@ -94,13 +94,13 @@ impl App {
         }
 
         // Sync opacity slider → transparency_level and re-apply if transparent
+        #[cfg(target_os = "windows")]
         {
             let slider_level = (self.settings.transparency * 255.0).clamp(25.0, 255.0) as u8;
             if slider_level != self.transparency_level {
                 self.transparency_level = slider_level;
                 if self.transparent {
                     if let Some(window) = self.window.clone() {
-                        #[cfg(target_os = "windows")]
                         self.apply_transparency(&window);
                     }
                 }
@@ -114,13 +114,17 @@ impl App {
                 if let Some(gpu) = &self.gpu {
                     let num = gpu.plugins.len();
                     let mut next = (self.current_plugin_index + 1) % num;
+                    let mut found = false;
                     for _ in 0..num {
                         if !self.settings.disabled_plugins.contains(&gpu.plugins[next].name) {
+                            found = true;
                             break;
                         }
                         next = (next + 1) % num;
                     }
-                    self.current_plugin_index = next;
+                    if found {
+                        self.current_plugin_index = next;
+                    }
                     self.last_mode_switch = Instant::now();
                     self.transition_active = true;
                     self.transition_time = 0.0;
@@ -357,13 +361,17 @@ impl App {
                 if let Some(gpu) = &self.gpu {
                     let num = gpu.plugins.len();
                     let mut next = (self.current_plugin_index + 1) % num;
+                    let mut found = false;
                     for _ in 0..num {
                         if !self.settings.disabled_plugins.contains(&gpu.plugins[next].name) {
+                            found = true;
                             break;
                         }
                         next = (next + 1) % num;
                     }
-                    self.current_plugin_index = next;
+                    if found {
+                        self.current_plugin_index = next;
+                    }
                     println!("Switched to plugin: {}", gpu.plugins[self.current_plugin_index].name);
                     self.transition_active = true;
                     self.transition_time = 0.0;
