@@ -5,12 +5,10 @@ use crate::error::{AppError, AppResult};
 use cpal::traits::{DeviceTrait, StreamTrait};
 use std::sync::{Arc, Mutex};
 
-/// Audio handler for capturing input and streaming output
+/// Audio handler for capturing input from a selected device
 pub struct AudioHandler {
     pub buffer: Arc<Mutex<Vec<f32>>>,
-    channels: u16,
     _input_stream: cpal::Stream,
-    _output_stream: Option<cpal::Stream>,
 }
 
 impl AudioHandler {
@@ -48,23 +46,8 @@ impl AudioHandler {
                 device.build_input_stream(
                     &stream_config,
                     move |data: &[f32], _: &cpal::InputCallbackInfo| {
-                        let mut buffer = buffer_clone.lock().unwrap();
-                        if channels == 1 {
-                            let len = buffer.len().min(data.len());
-                            buffer[..len].copy_from_slice(&data[..len]);
-                            for x in &mut buffer[len..] { *x = 0.0; }
-                        } else {
-                            let frame_len = data.len() / channels as usize;
-                            let len = buffer.len().min(frame_len);
-                            for i in 0..len {
-                                let mut sum = 0.0;
-                                for ch in 0..channels {
-                                    sum += data[i * channels as usize + ch as usize];
-                                }
-                                buffer[i] = sum / channels as f32;
-                            }
-                            for x in &mut buffer[len..] { *x = 0.0; }
-                        }
+                        let mut buf = buffer_clone.lock().unwrap();
+                        mix_to_mono(data, &mut buf, channels);
                     },
                     err_fn,
                     None,
@@ -75,25 +58,9 @@ impl AudioHandler {
                 device.build_input_stream(
                     &stream_config,
                     move |data: &[i16], _: &cpal::InputCallbackInfo| {
-                        let mut buffer = buffer_clone.lock().unwrap();
-                        if channels == 1 {
-                            let len = buffer.len().min(data.len());
-                            for (i, x) in buffer[..len].iter_mut().enumerate() {
-                                *x = data[i] as f32 / 32768.0;
-                            }
-                            for x in &mut buffer[len..] { *x = 0.0; }
-                        } else {
-                            let frame_len = data.len() / channels as usize;
-                            let len = buffer.len().min(frame_len);
-                            for i in 0..len {
-                                let mut sum = 0.0;
-                                for ch in 0..channels {
-                                    sum += data[i * channels as usize + ch as usize] as f32 / 32768.0;
-                                }
-                                buffer[i] = sum / channels as f32;
-                            }
-                            for x in &mut buffer[len..] { *x = 0.0; }
-                        }
+                        let mut buf = buffer_clone.lock().unwrap();
+                        let f32_data: Vec<f32> = data.iter().map(|&s| s as f32 / 32768.0).collect();
+                        mix_to_mono(&f32_data, &mut buf, channels);
                     },
                     err_fn,
                     None,
@@ -104,25 +71,9 @@ impl AudioHandler {
                 device.build_input_stream(
                     &stream_config,
                     move |data: &[u16], _: &cpal::InputCallbackInfo| {
-                        let mut buffer = buffer_clone.lock().unwrap();
-                        if channels == 1 {
-                            let len = buffer.len().min(data.len());
-                            for (i, x) in buffer[..len].iter_mut().enumerate() {
-                                *x = (data[i] as f32 - 32768.0) / 32768.0;
-                            }
-                            for x in &mut buffer[len..] { *x = 0.0; }
-                        } else {
-                            let frame_len = data.len() / channels as usize;
-                            let len = buffer.len().min(frame_len);
-                            for i in 0..len {
-                                let mut sum = 0.0;
-                                for ch in 0..channels {
-                                    sum += (data[i * channels as usize + ch as usize] as f32 - 32768.0) / 32768.0;
-                                }
-                                buffer[i] = sum / channels as f32;
-                            }
-                            for x in &mut buffer[len..] { *x = 0.0; }
-                        }
+                        let mut buf = buffer_clone.lock().unwrap();
+                        let f32_data: Vec<f32> = data.iter().map(|&s| (s as f32 - 32768.0) / 32768.0).collect();
+                        mix_to_mono(&f32_data, &mut buf, channels);
                     },
                     err_fn,
                     None,
@@ -133,25 +84,9 @@ impl AudioHandler {
                 device.build_input_stream(
                     &stream_config,
                     move |data: &[u8], _: &cpal::InputCallbackInfo| {
-                        let mut buffer = buffer_clone.lock().unwrap();
-                        if channels == 1 {
-                            let len = buffer.len().min(data.len());
-                            for (i, x) in buffer[..len].iter_mut().enumerate() {
-                                *x = (data[i] as f32 - 128.0) / 128.0;
-                            }
-                            for x in &mut buffer[len..] { *x = 0.0; }
-                        } else {
-                            let frame_len = data.len() / channels as usize;
-                            let len = buffer.len().min(frame_len);
-                            for i in 0..len {
-                                let mut sum = 0.0;
-                                for ch in 0..channels {
-                                    sum += (data[i * channels as usize + ch as usize] as f32 - 128.0) / 128.0;
-                                }
-                                buffer[i] = sum / channels as f32;
-                            }
-                            for x in &mut buffer[len..] { *x = 0.0; }
-                        }
+                        let mut buf = buffer_clone.lock().unwrap();
+                        let f32_data: Vec<f32> = data.iter().map(|&s| (s as f32 - 128.0) / 128.0).collect();
+                        mix_to_mono(&f32_data, &mut buf, channels);
                     },
                     err_fn,
                     None,
@@ -160,81 +95,31 @@ impl AudioHandler {
             _ => return Err(AppError::Audio(format!("Unsupported sample format: {:?}", sample_format))),
         }?;
 
-        // Create output stream to stream to the device (optional)
-        let _output_stream = if let Ok(output_config) = device.default_output_config() {
-            let output_sample_format = output_config.sample_format();
-            let output_stream_config = output_config.into();
-
-            let output_stream = match output_sample_format {
-                cpal::SampleFormat::F32 => {
-                    let buffer_clone = Arc::clone(&buffer);
-                    device.build_output_stream(
-                        &output_stream_config,
-                        move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
-                            let buffer = buffer_clone.lock().unwrap();
-                            let len = data.len().min(buffer.len());
-                            data[..len].copy_from_slice(&buffer[..len]);
-                            for sample in &mut data[len..] {
-                                *sample = 0.0;
-                            }
-                        },
-                        err_fn,
-                        None,
-                    )?
-                }
-                cpal::SampleFormat::I16 => {
-                    let buffer_clone = Arc::clone(&buffer);
-                    device.build_output_stream(
-                        &output_stream_config,
-                        move |data: &mut [i16], _: &cpal::OutputCallbackInfo| {
-                            let buffer = buffer_clone.lock().unwrap();
-                            let len = data.len().min(buffer.len());
-                            for (i, sample) in data[..len].iter_mut().enumerate() {
-                                *sample = (buffer[i] * 32767.0) as i16;
-                            }
-                            for sample in &mut data[len..] {
-                                *sample = 0;
-                            }
-                        },
-                        err_fn,
-                        None,
-                    )?
-                }
-                cpal::SampleFormat::U16 => {
-                    let buffer_clone = Arc::clone(&buffer);
-                    device.build_output_stream(
-                        &output_stream_config,
-                        move |data: &mut [u16], _: &cpal::OutputCallbackInfo| {
-                            let buffer = buffer_clone.lock().unwrap();
-                            let len = data.len().min(buffer.len());
-                            for (i, sample) in data[..len].iter_mut().enumerate() {
-                                *sample = ((buffer[i] * 32767.0) + 32768.0) as u16;
-                            }
-                            for sample in &mut data[len..] {
-                                *sample = 32768;
-                            }
-                        },
-                        err_fn,
-                        None,
-                    )?
-                }
-                _ => return Err(AppError::Audio(format!("Unsupported output sample format: {:?}", output_sample_format))),
-            };
-
-            output_stream.play().map_err(|e| AppError::Audio(format!("Failed to start output stream: {}", e)))?;
-
-            Some(output_stream)
-        } else {
-            None
-        };
-
         stream.play().map_err(|e| AppError::Audio(format!("Failed to start input stream: {}", e)))?;
 
         Ok(Self {
             buffer,
-            channels,
             _input_stream: stream,
-            _output_stream,
         })
     }
+}
+
+/// Mix multi-channel interleaved samples down to mono and write into `out`.
+/// `channels` is the number of channels per frame.
+fn mix_to_mono(data: &[f32], out: &mut Vec<f32>, channels: u16) {
+    let ch = channels as usize;
+    if ch == 0 {
+        for x in out.iter_mut() { *x = 0.0; }
+        return;
+    }
+    let frames = data.len() / ch;
+    let len = out.len().min(frames);
+    for i in 0..len {
+        let mut sum = 0.0f32;
+        for c in 0..ch {
+            sum += data[i * ch + c];
+        }
+        out[i] = sum / ch as f32;
+    }
+    for x in &mut out[len..] { *x = 0.0; }
 }

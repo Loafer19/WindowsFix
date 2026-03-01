@@ -13,15 +13,6 @@ pub const NUM_PARTICLES: u32 = 1000;
 /// Workgroup size for compute shader
 pub const COMPUTE_WORKGROUP_SIZE: u32 = 64;
 
-/// Shader directory name
-pub const SHADER_DIR: &str = "shaders";
-
-/// Particle render shader filename
-pub const PARTICLE_RENDER_SHADER: &str = "particle_render.wgsl";
-
-/// Compute particles shader filename
-pub const COMPUTE_PARTICLES_SHADER: &str = "compute_particles.wgsl";
-
 /// Window title
 pub const WINDOW_TITLE: &str = "Music Visualizer";
 
@@ -45,3 +36,9 @@ pub const DEFAULT_TRANSPARENCY: u8 = 150;
 
 /// Transparency adjustment step (~10%)
 pub const TRANSPARENCY_STEP: u8 = 25;
+
+/// Number of waveform history snapshots to keep.
+pub const WAVEFORM_HISTORY_SIZE: usize = 64;
+
+/// Update the waveform history every N rendered frames (~15 fps of history at 60 fps).
+pub const HISTORY_UPDATE_INTERVAL: u32 = 4;

@@ -17,6 +17,7 @@ pub struct GpuResources {
     pub config: wgpu::SurfaceConfiguration,
     pub uniform_buffer: wgpu::Buffer,
     pub fft_buffer: wgpu::Buffer,
+    pub history_buffer: wgpu::Buffer,
     pub particle_buffer: wgpu::Buffer,
     pub quad_buffer: wgpu::Buffer,
     pub particle_bind_group: wgpu::BindGroup,
@@ -28,6 +29,8 @@ pub struct GpuResources {
     start_time: Instant,
     smoothed_fft: Vec<f32>,
     pub bass_energy: f32,
+    waveform_history: Vec<f32>,
+    history_frame_counter: u32,
 }
 
 impl GpuResources {
@@ -79,8 +82,9 @@ impl GpuResources {
 
         let uniform_buffer = Self::create_uniform_buffer(&device, size.width, size.height);
         let fft_buffer = Self::create_fft_buffer(&device);
+        let history_buffer = Self::create_history_buffer(&device);
         let bind_group_layout = Self::create_bind_group_layout(&device);
-        let bind_group = Self::create_bind_group(&device, &bind_group_layout, &uniform_buffer, &fft_buffer);
+        let bind_group = Self::create_bind_group(&device, &bind_group_layout, &uniform_buffer, &fft_buffer, &history_buffer);
 
         let render_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Render Pipeline Layout"),
@@ -102,6 +106,7 @@ impl GpuResources {
             config,
             uniform_buffer,
             fft_buffer,
+            history_buffer,
             particle_buffer,
             quad_buffer,
             particle_bind_group,
@@ -113,6 +118,8 @@ impl GpuResources {
             start_time: Instant::now(),
             smoothed_fft: vec![0.0f32; SAMPLE_SIZE / 2],
             bass_energy: 0.0,
+            waveform_history: vec![0.0f32; WAVEFORM_HISTORY_SIZE * SAMPLE_SIZE],
+            history_frame_counter: 0,
         })
     }
 
@@ -149,6 +156,15 @@ impl GpuResources {
         })
     }
 
+    fn create_history_buffer(device: &wgpu::Device) -> wgpu::Buffer {
+        let history_data = vec![0.0f32; WAVEFORM_HISTORY_SIZE * SAMPLE_SIZE];
+        device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("History Buffer"),
+            contents: bytemuck::cast_slice(&history_data),
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        })
+    }
+
     fn create_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
         device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[
@@ -172,6 +188,16 @@ impl GpuResources {
                     },
                     count: None,
                 },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
             ],
             label: Some("bind_group_layout"),
         })
@@ -182,12 +208,14 @@ impl GpuResources {
         layout: &wgpu::BindGroupLayout,
         uniform_buffer: &wgpu::Buffer,
         fft_buffer: &wgpu::Buffer,
+        history_buffer: &wgpu::Buffer,
     ) -> wgpu::BindGroup {
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout,
             entries: &[
                 wgpu::BindGroupEntry { binding: 0, resource: uniform_buffer.as_entire_binding() },
                 wgpu::BindGroupEntry { binding: 1, resource: fft_buffer.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 2, resource: history_buffer.as_entire_binding() },
             ],
             label: Some("bind_group"),
         })
@@ -372,6 +400,26 @@ impl GpuResources {
                 *s *= gain;
             }
             data_to_write = waveform;
+        }
+
+        // Maintain waveform history for the waveform_history shader.
+        // Always updated from raw audio so the history reflects the actual signal.
+        self.history_frame_counter += 1;
+        if self.history_frame_counter >= HISTORY_UPDATE_INTERVAL {
+            self.history_frame_counter = 0;
+            let n = WAVEFORM_HISTORY_SIZE;
+            let ss = SAMPLE_SIZE;
+            // Shift: slot 0 = newest, slot N-1 = oldest
+            self.waveform_history.copy_within(0..(n - 1) * ss, ss);
+            // Write the new waveform (gain-scaled raw audio) at slot 0
+            let len = ss.min(audio_data.len());
+            for i in 0..len {
+                self.waveform_history[i] = audio_data[i] * gain;
+            }
+            for i in len..ss {
+                self.waveform_history[i] = 0.0;
+            }
+            self.queue.write_buffer(&self.history_buffer, 0, bytemuck::cast_slice(&self.waveform_history));
         }
 
         let mut updated = *uniforms;
