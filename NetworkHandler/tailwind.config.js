@@ -1,0 +1,17 @@
+export default {
+    content: ['./index.html', './src/**/*.{html,js,vue}'],
+    safelist: [
+        'badge-error',
+        'badge-warning',
+        'badge-neutral',
+        'badge-info',
+        'badge-success',
+        'badge-primary',
+        'text-error',
+        'text-warning',
+        'text-neutral',
+        'text-info',
+        'text-success',
+        'text-primary',
+    ],
+}

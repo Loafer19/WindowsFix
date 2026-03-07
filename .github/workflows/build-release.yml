@@ -42,6 +42,16 @@ jobs:
             fi
           fi
 
+          # Check NetworkHandler version
+          if [ -f NetworkHandler/package.json ]; then
+            current_nh=$(jq -r '.version' NetworkHandler/package.json)
+            previous_nh=$(git show HEAD~1:NetworkHandler/package.json | jq -r '.version' || echo "")
+            if [ "$current_nh" != "$previous_nh" ]; then
+              version_changed=true
+              version=$current_nh
+            fi
+          fi
+
           echo "changed=$version_changed" >> $GITHUB_OUTPUT
           echo "version=$version" >> $GITHUB_OUTPUT
 
@@ -72,7 +82,10 @@ jobs:
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
-          workspaces: 'MV -> target, SM/src-tauri -> target'
+          workspaces: |
+            MV -> target
+            SM/src-tauri -> target
+            NetworkHandler/src-tauri -> target
 
       - name: Build MV
         run: cd MV && cargo build --release
@@ -130,6 +143,40 @@ jobs:
         with:
           name: portable-${{ matrix.platform }}
           path: SM/src-tauri/target/release/ServicesManager_${{ needs.check-version.outputs.version }}-portable.exe
+
+      - name: Install NetworkHandler frontend dependencies
+        run: cd NetworkHandler && bun install
+
+      - name: Build NetSentry Tauri app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: NetworkHandler
+          args: --bundles nsis
+
+      - name: Rename NetSentry portable executable
+        run: |
+          copy NetworkHandler\src-tauri\target\release\net-sentry.exe NetworkHandler\src-tauri\target\release\NetSentry_${{ needs.check-version.outputs.version }}-portable.exe
+        shell: cmd
+
+      - name: Rename NetSentry setup executable
+        run: |
+          cd NetworkHandler\src-tauri\target\release\bundle\nsis
+          ren *.exe NetSentry_${{ needs.check-version.outputs.version }}-setup.exe
+        shell: cmd
+
+      - name: Upload NetSentry setup artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: netsentry-setup-${{ matrix.platform }}
+          path: NetworkHandler/src-tauri/target/release/bundle/nsis/NetSentry_${{ needs.check-version.outputs.version }}-setup.exe
+
+      - name: Upload NetSentry portable artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: netsentry-portable-${{ matrix.platform }}
+          path: NetworkHandler/src-tauri/target/release/NetSentry_${{ needs.check-version.outputs.version }}-portable.exe
 
   release:
     needs: [check-version, build]

@@ -1,0 +1,37 @@
+{
+    "$schema": "https://schema.tauri.app/config/2",
+    "productName": "NetSentry",
+    "version": "0.1.0",
+    "identifier": "com.netsentry",
+    "build": {
+        "beforeDevCommand": "bun run dev",
+        "devUrl": "http://localhost:1421",
+        "beforeBuildCommand": "bun run build",
+        "frontendDist": "../dist"
+    },
+    "app": {
+        "windows": [
+            {
+                "title": "NetSentry",
+                "width": 1200,
+                "height": 800,
+                "minWidth": 900,
+                "minHeight": 600
+            }
+        ],
+        "security": {
+            "csp": null
+        }
+    },
+    "bundle": {
+        "active": true,
+        "targets": "all",
+        "copyright": "Popelyshyn",
+        "shortDescription": "NetSentry Network Controller",
+        "longDescription": "High-performance real-time network monitoring and traffic shaping",
+        "icon": ["icons/icon.ico"],
+        "windows": {
+            "requestedExecutionLevel": "requireAdministrator"
+        }
+    }
+}
