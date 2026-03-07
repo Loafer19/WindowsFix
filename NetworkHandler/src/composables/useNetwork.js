@@ -2,20 +2,38 @@ import { ref } from 'vue'
 
 const HISTORY_POINTS = 60
 
+/**
+ * Convert bytes/s to dBbps (decibels relative to 1 B/s).
+ * Formula: 10 · log₁₀(bps), clamped to 0 for bps ≤ 1 to avoid −Infinity at zero traffic.
+ */
+export function toDb(bps) {
+    if (bps <= 1) return 0
+    return 10 * Math.log10(bps)
+}
+
+export function formatSpeed(bps) {
+    if (bps >= 1_048_576) return `${(bps / 1_048_576).toFixed(1)} MB/s`
+    if (bps >= 1024) return `${(bps / 1024).toFixed(1)} KB/s`
+    return `${bps} B/s`
+}
+
+function makeLabels() {
+    return Array.from({ length: HISTORY_POINTS }, (_, i) => {
+        const offset = HISTORY_POINTS - 1 - i
+        return offset === 0 ? 'now' : `-${offset}s`
+    })
+}
+
 export function useNetwork() {
     const downloadHistory = ref(Array(HISTORY_POINTS).fill(0))
     const uploadHistory = ref(Array(HISTORY_POINTS).fill(0))
-    const labels = ref(Array.from({ length: HISTORY_POINTS }, (_, i) => `${HISTORY_POINTS - i}s`))
+    const labels = ref(makeLabels())
 
     function pushStats(downloadBps, uploadBps) {
         downloadHistory.value = [...downloadHistory.value.slice(1), downloadBps]
         uploadHistory.value = [...uploadHistory.value.slice(1), uploadBps]
-    }
-
-    function formatSpeed(bps) {
-        if (bps >= 1_048_576) return `${(bps / 1_048_576).toFixed(1)} MB/s`
-        if (bps >= 1024) return `${(bps / 1024).toFixed(1)} KB/s`
-        return `${bps} B/s`
+        // Labels represent relative time offsets and stay constant;
+        // the data window shifts left on every push.
     }
 
     return {
@@ -23,6 +41,5 @@ export function useNetwork() {
         uploadHistory,
         labels,
         pushStats,
-        formatSpeed,
     }
 }

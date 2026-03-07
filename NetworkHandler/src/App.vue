@@ -23,11 +23,12 @@
                         :download-history="downloadHistory"
                         :upload-history="uploadHistory"
                         :labels="labels"
-                        :format-speed="formatSpeed"
                         :processes="processes"
                         @limit-change="onLimitChange"
-                        @block="onBlock"
-                        @unblock="onUnblock"
+                        @block-toggle="onBlockToggle"
+                        @throttle="onThrottle"
+                        @terminate="onTerminate"
+                        @free-ports="onFreePorts"
                     />
                 </div>
             </div>
@@ -44,9 +45,12 @@ import ProcessesTab from './components/Tabs/ProcessesTab.vue'
 import { useNetwork } from './composables/useNetwork.js'
 import {
     blockProcess,
+    freeProcessPorts,
     getNetworkStats,
     getProcesses,
+    killProcess,
     setGlobalLimit,
+    setProcessLimit,
     startCapture,
     stopCapture,
     unblockProcess,
@@ -61,7 +65,7 @@ const activeTab = ref(markRaw(DashboardTab))
 const error = ref(false)
 const processes = ref([])
 
-const { downloadHistory, uploadHistory, labels, pushStats, formatSpeed } = useNetwork()
+const { downloadHistory, uploadHistory, labels, pushStats } = useNetwork()
 
 let pollInterval = null
 
@@ -76,48 +80,75 @@ onMounted(async () => {
 
 onUnmounted(async () => {
     clearInterval(pollInterval)
-    try {
-        await stopCapture()
-    } catch {
-        // ignore
-    }
+    try { await stopCapture() } catch { /* ignore */ }
 })
 
 async function poll() {
     try {
         const [stats, procs] = await Promise.all([getNetworkStats(), getProcesses()])
         pushStats(stats.downloadBps, stats.uploadBps)
-        processes.value = procs
+        // Merge server data with local UI state flags (isPending, isTerminating, isFreeing)
+        processes.value = procs.map((p) => {
+            const existing = processes.value.find((e) => e.pid === p.pid) ?? {}
+            return {
+                ...p,
+                isPending: existing.isPending ?? false,
+                isTerminating: existing.isTerminating ?? false,
+                isFreeing: existing.isFreeing ?? false,
+            }
+        })
     } catch {
         // capture may not be running yet
     }
 }
 
 async function onLimitChange(bytesPerSec) {
+    try { await setGlobalLimit(bytesPerSec) } catch { /* ignore */ }
+}
+
+async function onThrottle({ proc, bps }) {
     try {
-        await setGlobalLimit(bytesPerSec)
+        await setProcessLimit(proc.pid, bps)
+        const found = processes.value.find((p) => p.pid === proc.pid)
+        if (found) found.limitBps = bps
     } catch {
-        // ignore
+        /* ignore */
     }
 }
 
-async function onBlock(proc) {
+async function onBlockToggle(proc) {
     proc.isPending = true
     try {
-        await blockProcess(proc.pid)
-        proc.blocked = true
+        if (proc.blocked) {
+            await unblockProcess(proc.pid)
+            proc.blocked = false
+        } else {
+            await blockProcess(proc.pid)
+            proc.blocked = true
+        }
     } finally {
         proc.isPending = false
     }
 }
 
-async function onUnblock(proc) {
-    proc.isPending = true
+async function onTerminate(proc) {
+    proc.isTerminating = true
     try {
-        await unblockProcess(proc.pid)
-        proc.blocked = false
+        await killProcess(proc.pid)
+        processes.value = processes.value.filter((p) => p.pid !== proc.pid)
+    } catch {
+        /* ignore — process may already be gone */
     } finally {
-        proc.isPending = false
+        proc.isTerminating = false
+    }
+}
+
+async function onFreePorts(proc) {
+    proc.isFreeing = true
+    try {
+        await freeProcessPorts(proc.pid)
+    } finally {
+        proc.isFreeing = false
     }
 }
 </script>

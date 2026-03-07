@@ -82,7 +82,10 @@ jobs:
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
-          workspaces: 'MV -> target, SM/src-tauri -> target, NetworkHandler/src-tauri -> target'
+          workspaces: |
+            MV -> target
+            SM/src-tauri -> target
+            NetworkHandler/src-tauri -> target
 
       - name: Build MV
         run: cd MV && cargo build --release
