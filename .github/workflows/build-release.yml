@@ -147,10 +147,23 @@ jobs:
       - name: Install NetworkHandler frontend dependencies
         run: cd NetworkHandler && bun install
 
+      - name: Download WinDivert driver files
+        run: |
+          $url = "https://github.com/basil00/WinDivert/releases/download/v2.2.2/WinDivert-2.2.2-A.zip"
+          Invoke-WebRequest -Uri $url -OutFile WinDivert.zip
+          Expand-Archive -Path WinDivert.zip -DestinationPath WinDivert
+          $top = (Get-ChildItem -Path WinDivert -Directory | Select-Object -First 1).FullName
+          $x64 = Join-Path $top "x64"
+          echo "WINDIVERT_PATH=$x64" >> $env:GITHUB_ENV
+          Copy-Item (Join-Path $x64 "WinDivert64.sys") "NetworkHandler\src-tauri\WinDivert64.sys"
+          Copy-Item (Join-Path $x64 "WinDivert.dll")   "NetworkHandler\src-tauri\WinDivert.dll"
+        shell: pwsh
+
       - name: Build NetSentry Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WINDIVERT_PATH: ${{ env.WINDIVERT_PATH }}
         with:
           projectPath: NetworkHandler
           args: --bundles nsis

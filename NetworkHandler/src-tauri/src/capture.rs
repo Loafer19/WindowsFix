@@ -11,12 +11,15 @@ use pnet::packet::ipv4::Ipv4Packet;
 use pnet::packet::tcp::TcpPacket;
 use pnet::packet::udp::UdpPacket;
 use pnet::packet::Packet;
-use windivert::layer::NetworkLayer;
+use windivert::prelude::WinDivertFlags;
 use windivert::WinDivert;
 
 use crate::models::AppState;
 
 type PortPidCache = HashMap<u16, u32>;
+
+/// Maximum size of an IPv4 or IPv6 packet in bytes (2^16 − 1).
+const MAX_IP_PACKET_SIZE: usize = 65535;
 
 fn refresh_port_pid_cache() -> PortPidCache {
     let mut cache = HashMap::new();
@@ -83,7 +86,7 @@ fn build_limiter(bytes_per_sec: u32) -> Option<DefaultDirectRateLimiter> {
 }
 
 pub fn capture_loop(state: Arc<AppState>) {
-    let handle = match WinDivert::<NetworkLayer>::new("ip") {
+    let handle = match WinDivert::network("ip", 0, WinDivertFlags::new()) {
         Ok(h) => h,
         Err(e) => {
             eprintln!("WinDivert open failed: {e}");
@@ -104,6 +107,9 @@ pub fn capture_loop(state: Arc<AppState>) {
     let mut proc_limit_snapshot: HashMap<u32, u64> = HashMap::new();
 
     let mut window_tick = Instant::now();
+
+    // Reusable receive buffer — large enough for any IP packet (max 64 KiB)
+    let mut recv_buf = vec![0u8; MAX_IP_PACKET_SIZE];
 
     loop {
         if !state.capture_running.load(Ordering::Relaxed) {
@@ -153,8 +159,8 @@ pub fn capture_loop(state: Arc<AppState>) {
             global_limiter = build_limiter(current_global as u32);
         }
 
-        let packet = match handle.recv(None) {
-            Ok(p) => p,
+        let packet = match handle.recv(Some(&mut recv_buf)) {
+            Ok(p) => p.into_owned(),
             Err(_) => continue,
         };
 
@@ -202,7 +208,7 @@ pub fn capture_loop(state: Arc<AppState>) {
             // Per-process token-bucket: drop if over the per-process limit
             if let Some(lim) = proc_limiters.get(&pid) {
                 if let Some(n) = NonZeroU32::new(pkt_len.min(u32::MAX as u64) as u32) {
-                    if lim.check_n(n).is_err() {
+                    if !matches!(lim.check_n(n), Ok(Ok(()))) {
                         continue;
                     }
                 }
@@ -212,7 +218,7 @@ pub fn capture_loop(state: Arc<AppState>) {
         // Global token-bucket: drop if over the global limit
         if let Some(ref lim) = global_limiter {
             if let Some(n) = NonZeroU32::new(pkt_len.min(u32::MAX as u64) as u32) {
-                if lim.check_n(n).is_err() {
+                if !matches!(lim.check_n(n), Ok(Ok(()))) {
                     continue;
                 }
             }

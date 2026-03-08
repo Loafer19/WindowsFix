@@ -30,6 +30,10 @@
         "shortDescription": "NetSentry Network Controller",
         "longDescription": "High-performance real-time network monitoring and traffic shaping",
         "icon": ["icons/icon.ico"],
+        "resources": [
+            "WinDivert64.sys",
+            "WinDivert.dll"
+        ],
         "windows": {
             "requestedExecutionLevel": "requireAdministrator"
         }
