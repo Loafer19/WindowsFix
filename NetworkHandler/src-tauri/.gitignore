@@ -7,3 +7,7 @@
 /gen/schemas
 
 Cargo.lock
+
+# WinDivert driver files (downloaded at build time)
+WinDivert.dll
+WinDivert64.sys
