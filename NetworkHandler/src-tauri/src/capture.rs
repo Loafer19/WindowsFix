@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::num::NonZeroU32;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -10,6 +10,8 @@ use netstat2::{get_sockets_info, AddressFamilyFlags, ProtocolFlags, ProtocolSock
 use windivert::prelude::WinDivertFlags;
 use windivert::WinDivert;
 
+use crate::db;
+use crate::history::{current_unix_hour, HOURLY_BUCKETS};
 use crate::models::AppState;
 
 type PortPidCache = HashMap<u16, u32>;
@@ -105,6 +107,13 @@ pub fn capture_loop(state: Arc<AppState>) {
 
     let mut window_tick = Instant::now();
 
+    // ── 24-hour hourly history accumulators (local to this thread) ──────────
+    let mut current_hour = current_unix_hour();
+    // Per-process bytes in the current (partial) hour: pid → (dl, ul)
+    let mut proc_hourly_acc: HashMap<u32, (u64, u64)> = HashMap::new();
+    // Global bytes in the current (partial) hour
+    let mut global_hourly_acc: (u64, u64) = (0, 0);
+
     // Reusable receive buffer — large enough for any IP packet (max 64 KiB)
     let mut recv_buf = vec![0u8; MAX_IP_PACKET_SIZE];
 
@@ -113,7 +122,7 @@ pub fn capture_loop(state: Arc<AppState>) {
             break;
         }
 
-        // Reset per-second bandwidth counters
+        // Reset per-second bandwidth counters and check for hour rollover
         if window_tick.elapsed() >= Duration::from_secs(1) {
             let mut w = state.window.lock().unwrap();
             w.download_bytes = 0;
@@ -121,6 +130,15 @@ pub fn capture_loop(state: Arc<AppState>) {
             drop(w);
             state.process_bytes.lock().unwrap().clear();
             window_tick = Instant::now();
+
+            // Check whether we have entered a new hour
+            let new_hour = current_unix_hour();
+            if new_hour != current_hour {
+                advance_hourly(&state, current_hour, new_hour, &proc_hourly_acc, global_hourly_acc);
+                proc_hourly_acc.clear();
+                global_hourly_acc = (0, 0);
+                current_hour = new_hour;
+            }
         }
 
         // Periodically refresh PID–port cache and per-process limiters
@@ -174,6 +192,13 @@ pub fn capture_loop(state: Arc<AppState>) {
             }
         }
 
+        // Accumulate into the current partial-hour global bucket
+        if is_outbound {
+            global_hourly_acc.1 = global_hourly_acc.1.saturating_add(pkt_len);
+        } else {
+            global_hourly_acc.0 = global_hourly_acc.0.saturating_add(pkt_len);
+        }
+
         // Correlate to a PID via the local TCP/UDP port
         let owner_pid = extract_local_port(&packet.data, is_outbound)
             .and_then(|port| pid_cache.get(&port).copied());
@@ -203,6 +228,14 @@ pub fn capture_loop(state: Arc<AppState>) {
                 total_entry.0 = total_entry.0.saturating_add(pkt_len);
             }
             drop(ptb);
+
+            // Accumulate into the current partial-hour per-process bucket
+            let acc = proc_hourly_acc.entry(pid).or_insert((0, 0));
+            if is_outbound {
+                acc.1 = acc.1.saturating_add(pkt_len);
+            } else {
+                acc.0 = acc.0.saturating_add(pkt_len);
+            }
 
             // Cache process name on first sight
             state
@@ -234,6 +267,62 @@ pub fn capture_loop(state: Arc<AppState>) {
         if let Err(e) = handle.send(&packet) {
             eprintln!("WinDivert send failed: {e}");
         }
+    }
+}
+
+/// Advance the hourly history when one or more hours have elapsed.
+/// Pushes the accumulated bytes for the completed hour(s) into the shared state
+/// and persists the global history to disk.
+fn advance_hourly(
+    state: &AppState,
+    old_hour: u64,
+    new_hour: u64,
+    proc_acc: &HashMap<u32, (u64, u64)>,
+    global_acc: (u64, u64),
+) {
+    let hours_elapsed = (new_hour.saturating_sub(old_hour) as usize).min(HOURLY_BUCKETS);
+
+    let mut ph = state.process_hourly.lock().unwrap();
+    let mut gh = state.global_hourly.lock().unwrap();
+
+    for h in 0..hours_elapsed {
+        let is_last = h == hours_elapsed - 1;
+        // For skipped intermediate hours (app was suspended / no data) push zeros.
+        let (g_dl, g_ul) = if is_last { global_acc } else { (0, 0) };
+
+        gh.push_back((g_dl, g_ul));
+        if gh.len() > HOURLY_BUCKETS {
+            gh.pop_front();
+        }
+
+        if is_last {
+            for (&pid, &acc) in proc_acc {
+                let deque = ph.entry(pid).or_insert_with(VecDeque::new);
+                deque.push_back(acc);
+                if deque.len() > HOURLY_BUCKETS {
+                    deque.pop_front();
+                }
+            }
+        } else {
+            // Fill all existing per-process deques with zeros for the skipped hour
+            for deque in ph.values_mut() {
+                deque.push_back((0, 0));
+                if deque.len() > HOURLY_BUCKETS {
+                    deque.pop_front();
+                }
+            }
+        }
+    }
+
+    // Persist the updated global hourly data
+    let data = db::AppData {
+        global_hourly: gh.iter().copied().collect(),
+        saved_at_hour: new_hour,
+    };
+    drop(gh);
+    drop(ph);
+    if let Err(e) = db::save(&data) {
+        eprintln!("Failed to persist hourly data: {e}");
     }
 }
 

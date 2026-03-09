@@ -1,6 +1,26 @@
 <template>
     <div>
-        <!-- Live speed tiles -->
+        <!-- 24-hour total tiles -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+        <div class="bg-base-200 rounded-lg p-4 flex items-center gap-3">
+            <Icon name="arrowDown" class="w-8 h-8 text-info" />
+            <div>
+                <div class="text-base-content/70 text-sm">24h Download</div>
+                <div class="text-2xl font-bold text-info">{{ formatBytes(totals.downloadBytes) }}</div>
+                <div class="text-xs text-base-content/50">completed hours only</div>
+            </div>
+        </div>
+        <div class="bg-base-200 rounded-lg p-4 flex items-center gap-3">
+            <Icon name="arrowUp" class="w-8 h-8 text-success" />
+            <div>
+                <div class="text-base-content/70 text-sm">24h Upload</div>
+                <div class="text-2xl font-bold text-success">{{ formatBytes(totals.uploadBytes) }}</div>
+                <div class="text-xs text-base-content/50">completed hours only</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Live speed tiles -->
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
             <div class="bg-base-200 rounded-lg p-4 flex items-center gap-3">
                 <Icon name="arrowDown" class="w-8 h-8 text-info" />
@@ -48,21 +68,21 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
-import { Line } from 'vue-chartjs'
 import {
     CategoryScale,
     Chart as ChartJS,
     Filler,
     Legend,
-    LineElement,
     LinearScale,
+    LineElement,
     PointElement,
     Title,
     Tooltip,
 } from 'chart.js'
+import { computed, ref } from 'vue'
+import { Line } from 'vue-chartjs'
+import { formatBytes, formatSpeed, toDb } from '../../composables/useNetwork.js'
 import Icon from '../Icon.vue'
-import { formatSpeed, toDb } from '../../composables/useNetwork.js'
 
 ChartJS.register(
     CategoryScale,
@@ -77,18 +97,22 @@ ChartJS.register(
 
 // Bandwidth-limit presets: { value: bytes/s (0 = unlimited), label: display string }
 const LIMIT_PRESETS = Object.freeze([
-    { value: 0,          label: 'Unlimited' },
-    { value: 131_072,    label: '128 KB/s'  },
-    { value: 524_288,    label: '512 KB/s'  },
-    { value: 1_048_576,  label: '1 MB/s'    },
-    { value: 5_242_880,  label: '5 MB/s'    },
-    { value: 10_485_760, label: '10 MB/s'   },
+    { value: 0, label: 'Unlimited' },
+    { value: 131_072, label: '128 KB/s' },
+    { value: 524_288, label: '512 KB/s' },
+    { value: 1_048_576, label: '1 MB/s' },
+    { value: 5_242_880, label: '5 MB/s' },
+    { value: 10_485_760, label: '10 MB/s' },
 ])
 
 const props = defineProps({
     downloadHistory: { type: Array, default: () => [] },
     uploadHistory: { type: Array, default: () => [] },
     labels: { type: Array, default: () => [] },
+    totals: {
+        type: Object,
+        default: () => ({ downloadBytes: 0, uploadBytes: 0 }),
+    },
 })
 
 const emit = defineEmits(['limit-change'])
@@ -148,7 +172,7 @@ const chartOptions = {
                 label: (ctx) => {
                     const db = ctx.raw ?? 0
                     // Recover approximate raw speed for tooltip
-                    const bps = db > 0 ? Math.pow(10, db / 10) : 0
+                    const bps = db > 0 ? 10 ** (db / 10) : 0
                     return `${ctx.dataset.label.split(' ')[0]}: ${db.toFixed(1)} dBbps (${formatSpeed(Math.round(bps))})`
                 },
             },

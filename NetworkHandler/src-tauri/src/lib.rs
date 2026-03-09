@@ -1,6 +1,10 @@
 mod capture;
+mod db;
+mod history;
 mod models;
+mod settings;
 
+use std::collections::VecDeque;
 use std::net::IpAddr;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -8,7 +12,7 @@ use std::sync::Arc;
 use netstat2::{get_sockets_info, AddressFamilyFlags, ProtocolFlags, ProtocolSocketInfo};
 use tauri::State;
 
-use models::{AppState, NetworkStats, ProcessInfo};
+use models::{AppState, HourlyPoint, NetworkStats, NotificationConfig, ProcessInfo, Settings};
 
 // ---------------------------------------------------------------------------
 // Capture control
@@ -200,15 +204,144 @@ async fn free_process_ports(pid: u32) -> Result<u32, String> {
 }
 
 // ---------------------------------------------------------------------------
+// 24-hour history & settings commands
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+async fn get_process_history(
+    pid: u32,
+    state: State<'_, Arc<AppState>>,
+) -> Result<Vec<HourlyPoint>, String> {
+    let hourly = state.process_hourly.lock().unwrap();
+    let points = hourly
+        .get(&pid)
+        .map(|deque| {
+            deque
+                .iter()
+                .map(|&(dl, ul)| HourlyPoint {
+                    download_bytes: dl,
+                    upload_bytes: ul,
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok(points)
+}
+
+#[tauri::command]
+async fn get_24h_totals(state: State<'_, Arc<AppState>>) -> Result<HourlyPoint, String> {
+    let hourly = state.global_hourly.lock().unwrap();
+    let (dl, ul) = hourly
+        .iter()
+        .fold((0u64, 0u64), |(a, b), &(d, u)| (a + d, b + u));
+    Ok(HourlyPoint {
+        download_bytes: dl,
+        upload_bytes: ul,
+    })
+}
+
+#[tauri::command]
+async fn get_settings(state: State<'_, Arc<AppState>>) -> Result<Settings, String> {
+    Ok(state.settings.lock().unwrap().clone())
+}
+
+#[tauri::command]
+async fn set_settings(
+    settings: Settings,
+    state: State<'_, Arc<AppState>>,
+) -> Result<(), String> {
+    settings::set_autorun(settings.start_with_windows)?;
+    let notif = state.notification_config.lock().unwrap().clone();
+    settings::save_settings(&settings, &notif)?;
+    *state.settings.lock().unwrap() = settings;
+    Ok(())
+}
+
+#[tauri::command]
+async fn get_notification_config(
+    state: State<'_, Arc<AppState>>,
+) -> Result<NotificationConfig, String> {
+    Ok(state.notification_config.lock().unwrap().clone())
+}
+
+#[tauri::command]
+async fn set_notification_config(
+    config: NotificationConfig,
+    state: State<'_, Arc<AppState>>,
+) -> Result<(), String> {
+    let s = state.settings.lock().unwrap().clone();
+    settings::save_settings(&s, &config)?;
+    *state.notification_config.lock().unwrap() = config;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // App entry point
 // ---------------------------------------------------------------------------
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let app_state = Arc::new(AppState::new());
+    // Load persisted settings and 24h global history
+    let (saved_settings, saved_notif) = settings::load_settings_and_notifications();
+    let saved_data = db::load();
+
+    // Restore global hourly history, padding with zeros for any hours the app was offline
+    let current_hour = history::current_unix_hour();
+    let mut global_hourly: VecDeque<(u64, u64)> = saved_data.global_hourly.into_iter().collect();
+    if saved_data.saved_at_hour > 0 {
+        let offline_hours =
+            (current_hour.saturating_sub(saved_data.saved_at_hour) as usize)
+                .min(history::HOURLY_BUCKETS);
+        for _ in 0..offline_hours {
+            global_hourly.push_back((0, 0));
+            if global_hourly.len() > history::HOURLY_BUCKETS {
+                global_hourly.pop_front();
+            }
+        }
+    }
+
+    let app_state = Arc::new(AppState::new(saved_settings, saved_notif, global_hourly));
 
     tauri::Builder::default()
         .manage(app_state)
+        .setup(|app| {
+            use tauri::menu::{Menu, MenuItem};
+            use tauri::tray::{MouseButton, TrayIconBuilder, TrayIconEvent};
+
+            let show_i = MenuItem::with_id(app, "show", "Show", true, None::<&str>)?;
+            let quit_i = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+            let menu = Menu::with_items(app, &[&show_i, &quit_i])?;
+
+            TrayIconBuilder::new()
+                .icon(app.default_window_icon().unwrap().clone())
+                .tooltip("NetSentry")
+                .menu(&menu)
+                .on_menu_event(|app, event| match event.id.as_ref() {
+                    "show" => {
+                        if let Some(w) = app.get_webview_window("main") {
+                            let _ = w.show();
+                            let _ = w.set_focus();
+                        }
+                    }
+                    "quit" => app.exit(0),
+                    _ => {}
+                })
+                .on_tray_icon_event(|tray, event| {
+                    if let TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        ..
+                    } = event
+                    {
+                        let app = tray.app_handle();
+                        if let Some(w) = app.get_webview_window("main") {
+                            let _ = w.show();
+                            let _ = w.set_focus();
+                        }
+                    }
+                })
+                .build(app)?;
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             start_capture,
             stop_capture,
@@ -220,6 +353,12 @@ pub fn run() {
             unblock_process,
             kill_process,
             free_process_ports,
+            get_process_history,
+            get_24h_totals,
+            get_settings,
+            set_settings,
+            get_notification_config,
+            set_notification_config,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
