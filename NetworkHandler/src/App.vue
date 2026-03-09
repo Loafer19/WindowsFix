@@ -16,6 +16,21 @@
                 <div class="text-xs">Ensure the application is running as Administrator.</div>
             </div>
 
+            <!-- Notification toasts -->
+            <div class="fixed top-4 right-4 z-50 flex flex-col gap-2 max-w-sm">
+                <div
+                    v-for="n in notifications"
+                    :key="n.id"
+                    class="alert alert-warning shadow-lg py-2 px-4 text-sm flex items-center gap-2"
+                >
+                    <Icon name="bell" class="w-4 h-4 shrink-0" />
+                    <span>{{ n.message }}</span>
+                    <Button class="btn btn-ghost btn-xs btn-square ml-auto" @clicked="dismissNotification(n.id)">
+                        <Icon name="close" class="w-3 h-3" />
+                    </Button>
+                </div>
+            </div>
+
             <div class="card bg-base-100 card-border border-base-300">
                 <div class="card-body">
                     <component
@@ -24,6 +39,7 @@
                         :upload-history="uploadHistory"
                         :labels="labels"
                         :processes="processes"
+                        :totals="totals24h"
                         @limit-change="onLimitChange"
                         @block-toggle="onBlockToggle"
                         @throttle="onThrottle"
@@ -38,16 +54,22 @@
 </template>
 
 <script setup>
+import { getCurrentWindow } from '@tauri-apps/api/window'
 import { markRaw, onMounted, onUnmounted, ref } from 'vue'
+import Button from './components/Button.vue'
 import Icon from './components/Icon.vue'
+import ConfigsTab from './components/Tabs/ConfigsTab.vue'
 import DashboardTab from './components/Tabs/DashboardTab.vue'
 import ProcessesTab from './components/Tabs/ProcessesTab.vue'
 import { useNetwork } from './composables/useNetwork.js'
 import {
     blockProcess,
     freeProcessPorts,
+    get24hTotals,
     getNetworkStats,
+    getNotificationConfig,
     getProcesses,
+    getSettings,
     killProcess,
     setGlobalLimit,
     setProcessLimit,
@@ -57,13 +79,40 @@ import {
 } from './services/api.js'
 
 const tabs = ref([
-    { id: 'dashboard', name: 'Dashboard', component: markRaw(DashboardTab), icon: 'dashboard' },
-    { id: 'processes', name: 'Processes', component: markRaw(ProcessesTab), icon: 'processes' },
+    {
+        id: 'dashboard',
+        name: 'Dashboard',
+        component: markRaw(DashboardTab),
+        icon: 'dashboard',
+    },
+    {
+        id: 'processes',
+        name: 'Processes',
+        component: markRaw(ProcessesTab),
+        icon: 'processes',
+    },
+    {
+        id: 'configs',
+        name: 'Configs',
+        component: markRaw(ConfigsTab),
+        icon: 'configs',
+    },
 ])
 
 const activeTab = ref(markRaw(DashboardTab))
 const error = ref(false)
 const processes = ref([])
+const totals24h = ref({ downloadBytes: 0, uploadBytes: 0 })
+
+// Notification toasts
+const notifications = ref([])
+let nextNotifId = 0
+// Track which threshold notification was already fired this session
+const notifFiredDl = ref(false)
+const notifFiredUl = ref(false)
+// Track seen PIDs for new-process alerts
+const seenPids = new Set()
+let firstPoll = true
 
 const { downloadHistory, uploadHistory, labels, pushStats } = useNetwork()
 
@@ -76,17 +125,45 @@ onMounted(async () => {
         error.value = true
     }
     pollInterval = setInterval(poll, 1000)
+
+    // Minimize-to-tray: intercept window close if configured
+    try {
+        const appWindow = getCurrentWindow()
+        await appWindow.onCloseRequested(async (event) => {
+            try {
+                const s = await getSettings()
+                if (s.minimizeToTray) {
+                    event.preventDefault()
+                    await appWindow.hide()
+                }
+            } catch {
+                /* ignore — close normally */
+            }
+        })
+    } catch {
+        /* not in Tauri context (e.g. browser preview) */
+    }
 })
 
 onUnmounted(async () => {
     clearInterval(pollInterval)
-    try { await stopCapture() } catch { /* ignore */ }
+    try {
+        await stopCapture()
+    } catch {
+        /* ignore */
+    }
 })
 
 async function poll() {
     try {
-        const [stats, procs] = await Promise.all([getNetworkStats(), getProcesses()])
+        const [stats, procs, totals] = await Promise.all([
+            getNetworkStats(),
+            getProcesses(),
+            get24hTotals(),
+        ])
         pushStats(stats.downloadBps, stats.uploadBps)
+        totals24h.value = totals
+
         // Merge server data with local UI state flags (isPending, isTerminating, isFreeing)
         processes.value = procs.map((p) => {
             const existing = processes.value.find((e) => e.pid === p.pid) ?? {}
@@ -97,13 +174,83 @@ async function poll() {
                 isFreeing: existing.isFreeing ?? false,
             }
         })
+
+        // Notification checks
+        await checkNotifications(procs, totals)
     } catch {
         // capture may not be running yet
     }
 }
 
+async function checkNotifications(procs, totals) {
+    try {
+        const notifConfig = await getNotificationConfig()
+
+        // New process alert — seed on first poll, fire on subsequent polls
+        if (notifConfig.newProcessAlert) {
+            if (firstPoll) {
+                for (const p of procs) seenPids.add(p.pid)
+                firstPoll = false
+            } else {
+                for (const p of procs) {
+                    if (!seenPids.has(p.pid)) {
+                        seenPids.add(p.pid)
+                        pushNotification(
+                            `New process: ${p.name} (PID ${p.pid})`,
+                        )
+                    }
+                }
+            }
+        } else if (firstPoll) {
+            firstPoll = false
+        }
+
+        // Download threshold
+        const dlGb = totals.downloadBytes / 1_073_741_824
+        if (
+            notifConfig.downloadThresholdGb > 0 &&
+            dlGb >= notifConfig.downloadThresholdGb &&
+            !notifFiredDl.value
+        ) {
+            notifFiredDl.value = true
+            pushNotification(
+                `24h download reached ${dlGb.toFixed(2)} GB (threshold: ${notifConfig.downloadThresholdGb} GB)`,
+            )
+        }
+
+        // Upload threshold
+        const ulGb = totals.uploadBytes / 1_073_741_824
+        if (
+            notifConfig.uploadThresholdGb > 0 &&
+            ulGb >= notifConfig.uploadThresholdGb &&
+            !notifFiredUl.value
+        ) {
+            notifFiredUl.value = true
+            pushNotification(
+                `24h upload reached ${ulGb.toFixed(2)} GB (threshold: ${notifConfig.uploadThresholdGb} GB)`,
+            )
+        }
+    } catch {
+        /* ignore */
+    }
+}
+
+function pushNotification(message) {
+    const id = nextNotifId++
+    notifications.value.push({ id, message })
+    setTimeout(() => dismissNotification(id), 8000)
+}
+
+function dismissNotification(id) {
+    notifications.value = notifications.value.filter((n) => n.id !== id)
+}
+
 async function onLimitChange(bytesPerSec) {
-    try { await setGlobalLimit(bytesPerSec) } catch { /* ignore */ }
+    try {
+        await setGlobalLimit(bytesPerSec)
+    } catch {
+        /* ignore */
+    }
 }
 
 async function onThrottle({ proc, bps }) {

@@ -60,6 +60,30 @@ async function stopCapture() {
     return await invoke('stop_capture')
 }
 
+async function getProcessHistory(pid) {
+    return await invoke('get_process_history', { pid })
+}
+
+async function get24hTotals() {
+    return await invoke('get_24h_totals')
+}
+
+async function getSettings() {
+    return await invoke('get_settings')
+}
+
+async function setSettings(settings) {
+    return await invoke('set_settings', { settings })
+}
+
+async function getNotificationConfig() {
+    return await invoke('get_notification_config')
+}
+
+async function setNotificationConfig(config) {
+    return await invoke('set_notification_config', { config })
+}
+
 export {
     getNetworkStats,
     getProcesses,
@@ -71,4 +95,10 @@ export {
     freeProcessPorts,
     startCapture,
     stopCapture,
+    getProcessHistory,
+    get24hTotals,
+    getSettings,
+    setSettings,
+    getNotificationConfig,
+    setNotificationConfig,
 }
