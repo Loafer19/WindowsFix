@@ -44,6 +44,8 @@ pub struct Settings {
     pub start_with_windows: bool,
     #[serde(rename = "minimizeToTray", default)]
     pub minimize_to_tray: bool,
+    #[serde(rename = "globalLimitBps", default)]
+    pub global_limit_bps: u64,
 }
 
 /// Notification trigger configuration.
@@ -58,6 +60,17 @@ pub struct NotificationConfig {
     /// Notify when global 24 h upload exceeds this many GB (0 = disabled).
     #[serde(rename = "uploadThresholdGb", default = "default_5gb")]
     pub upload_threshold_gb: f64,
+}
+
+/// WinDivert installation status.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WinDivertStatus {
+    #[serde(rename = "libraryExists")]
+    pub library_exists: bool,
+    #[serde(rename = "serviceExists")]
+    pub service_exists: bool,
+    #[serde(rename = "serviceRunning")]
+    pub service_running: bool,
 }
 
 fn default_5gb() -> f64 {
@@ -115,7 +128,7 @@ impl AppState {
             process_names: Arc::new(Mutex::new(HashMap::new())),
             blocked_pids: Arc::new(Mutex::new(HashSet::new())),
             process_limits: Arc::new(Mutex::new(HashMap::new())),
-            limit_bps: Arc::new(AtomicU64::new(0)),
+            limit_bps: Arc::new(AtomicU64::new(settings.global_limit_bps)),
             capture_running: Arc::new(AtomicBool::new(false)),
             process_hourly: Arc::new(Mutex::new(HashMap::new())),
             global_hourly: Arc::new(Mutex::new(global_hourly)),

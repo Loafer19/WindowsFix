@@ -13,5 +13,8 @@ export default {
         'text-info',
         'text-success',
         'text-primary',
+        'alert-error',
+        'alert-success',
+        'alert-warning',
     ],
 }

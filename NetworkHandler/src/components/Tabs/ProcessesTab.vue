@@ -66,12 +66,9 @@
                         <td><span class="badge badge-info font-mono">{{ formatBytes(proc.totalDownloadBytes) }}</span></td>
                         <td><span class="badge badge-success font-mono">{{ formatBytes(proc.totalUploadBytes) }}</span></td>
                         <td @click.stop>
-                            <div class="flex items-center gap-1">
-                                <input type="number" class="input input-bordered input-sm w-24 font-mono" min="0" placeholder="no limit"
-                                    :value="proc.limitBps ? Math.round(proc.limitBps / 1024) : ''"
-                                    @change="onThrottleChange(proc, $event)" @keydown.enter="$event.target.blur()" />
-                                <span class="text-xs text-base-content/50">KB/s</span>
-                            </div>
+                            <input type="number" class="input input-bordered input-sm w-24 font-mono" min="0" placeholder="no limit"
+                                :value="proc.limitBps ? Math.round(proc.limitBps / 1024) : ''"
+                                @change="onThrottleChange(proc, $event)" @keydown.enter="$event.target.blur()" />
                         </td>
                         <td @click.stop>
                             <div class="flex items-center gap-1">

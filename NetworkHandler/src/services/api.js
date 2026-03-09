@@ -84,6 +84,18 @@ async function setNotificationConfig(config) {
     return await invoke('set_notification_config', { config })
 }
 
+async function checkWinDivertStatus() {
+    return await invoke('check_windivert_status')
+}
+
+async function installWinDivert() {
+    return await invoke('install_windivert')
+}
+
+async function startWinDivertService() {
+    return await invoke('start_windivert_service')
+}
+
 export {
     getNetworkStats,
     getProcesses,
@@ -101,4 +113,7 @@ export {
     setSettings,
     getNotificationConfig,
     setNotificationConfig,
+    checkWinDivertStatus,
+    installWinDivert,
+    startWinDivertService,
 }

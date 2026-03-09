@@ -18,11 +18,8 @@
 
             <!-- Notification toasts -->
             <div class="fixed top-4 right-4 z-50 flex flex-col gap-2 max-w-sm">
-                <div
-                    v-for="n in notifications"
-                    :key="n.id"
-                    class="alert alert-warning shadow-lg py-2 px-4 text-sm flex items-center gap-2"
-                >
+                <div v-for="n in notifications" :key="n.id"
+                    :class="`alert alert-${n.type} shadow-lg py-2 px-4 text-sm flex items-center gap-2`">
                     <Icon name="bell" class="w-4 h-4 shrink-0" />
                     <span>{{ n.message }}</span>
                     <Button class="btn btn-ghost btn-xs btn-square ml-auto" @clicked="dismissNotification(n.id)">
@@ -33,19 +30,10 @@
 
             <div class="card bg-base-100 card-border border-base-300">
                 <div class="card-body">
-                    <component
-                        :is="activeTab"
-                        :download-history="downloadHistory"
-                        :upload-history="uploadHistory"
-                        :labels="labels"
-                        :processes="processes"
-                        :totals="totals24h"
-                        @limit-change="onLimitChange"
-                        @block-toggle="onBlockToggle"
-                        @throttle="onThrottle"
-                        @terminate="onTerminate"
-                        @free-ports="onFreePorts"
-                    />
+                    <component :is="activeTab" :download-history="downloadHistory" :upload-history="uploadHistory"
+                        :labels="labels" :processes="processes" :totals="totals24h" @block-toggle="onBlockToggle"
+                        @throttle="onThrottle" @terminate="onTerminate" @free-ports="onFreePorts"
+                        @notification="onNotification" />
                 </div>
             </div>
 
@@ -71,7 +59,6 @@ import {
     getProcesses,
     getSettings,
     killProcess,
-    setGlobalLimit,
     setProcessLimit,
     startCapture,
     stopCapture,
@@ -124,20 +111,23 @@ onMounted(async () => {
     } catch {
         error.value = true
     }
-    pollInterval = setInterval(poll, 1000)
+    pollInterval = setInterval(poll, 500)
 
     // Minimize-to-tray: intercept window close if configured
     try {
+        const app = getCurrentWindow().appHandle
         const appWindow = getCurrentWindow()
         await appWindow.onCloseRequested(async (event) => {
+            event.preventDefault()
             try {
                 const s = await getSettings()
                 if (s.minimizeToTray) {
-                    event.preventDefault()
                     await appWindow.hide()
+                } else {
+                    app.exit(0)
                 }
             } catch {
-                /* ignore — close normally */
+                app.exit(0)
             }
         })
     } catch {
@@ -195,9 +185,10 @@ async function checkNotifications(procs, totals) {
                 for (const p of procs) {
                     if (!seenPids.has(p.pid)) {
                         seenPids.add(p.pid)
-                        pushNotification(
-                            `New process: ${p.name} (PID ${p.pid})`,
-                        )
+                        pushNotification({
+                            type: 'warning',
+                            message: `New process: ${p.name} (PID ${p.pid})`,
+                        })
                     }
                 }
             }
@@ -213,9 +204,10 @@ async function checkNotifications(procs, totals) {
             !notifFiredDl.value
         ) {
             notifFiredDl.value = true
-            pushNotification(
-                `24h download reached ${dlGb.toFixed(2)} GB (threshold: ${notifConfig.downloadThresholdGb} GB)`,
-            )
+            pushNotification({
+                type: 'warning',
+                message: `24h download reached ${dlGb.toFixed(2)} GB (threshold: ${notifConfig.downloadThresholdGb} GB)`,
+            })
         }
 
         // Upload threshold
@@ -226,18 +218,19 @@ async function checkNotifications(procs, totals) {
             !notifFiredUl.value
         ) {
             notifFiredUl.value = true
-            pushNotification(
-                `24h upload reached ${ulGb.toFixed(2)} GB (threshold: ${notifConfig.uploadThresholdGb} GB)`,
-            )
+            pushNotification({
+                type: 'warning',
+                message: `24h upload reached ${ulGb.toFixed(2)} GB (threshold: ${notifConfig.uploadThresholdGb} GB)`,
+            })
         }
     } catch {
         /* ignore */
     }
 }
 
-function pushNotification(message) {
+function pushNotification(notification) {
     const id = nextNotifId++
-    notifications.value.push({ id, message })
+    notifications.value.push({ id, ...notification })
     setTimeout(() => dismissNotification(id), 8000)
 }
 
@@ -245,12 +238,8 @@ function dismissNotification(id) {
     notifications.value = notifications.value.filter((n) => n.id !== id)
 }
 
-async function onLimitChange(bytesPerSec) {
-    try {
-        await setGlobalLimit(bytesPerSec)
-    } catch {
-        /* ignore */
-    }
+function onNotification(notification) {
+    pushNotification(notification)
 }
 
 async function onThrottle({ proc, bps }) {

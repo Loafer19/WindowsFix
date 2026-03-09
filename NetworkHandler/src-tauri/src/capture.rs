@@ -84,12 +84,13 @@ fn build_limiter(bytes_per_sec: u32) -> Option<DefaultDirectRateLimiter> {
 }
 
 pub fn capture_loop(state: Arc<AppState>) {
-    let handle = match WinDivert::network("ip", 0, WinDivertFlags::new()) {
-        Ok(h) => h,
-        Err(e) => {
-            eprintln!("WinDivert open failed: {e}");
-            eprintln!("Please ensure WinDivert is installed. Download from https://www.reqrypt.org/windivert.html");
-            return;
+    let handle = loop {
+        match WinDivert::network("ip", 0, WinDivertFlags::new()) {
+            Ok(h) => break h,
+            Err(e) => {
+                eprintln!("WinDivert open failed: {e}");
+                std::thread::sleep(std::time::Duration::from_secs(5));
+            }
         }
     };
 

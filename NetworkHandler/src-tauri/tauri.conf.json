@@ -30,6 +30,7 @@
         "shortDescription": "NetSentry Network Controller",
         "longDescription": "High-performance real-time network monitoring and traffic shaping",
         "icon": ["icons/icon.ico"],
+
         "windows": {
             "certificateThumbprint": null,
             "digestAlgorithm": "sha256",

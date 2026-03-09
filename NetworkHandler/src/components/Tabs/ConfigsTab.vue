@@ -1,11 +1,35 @@
 <template>
     <div class="space-y-6">
 
-        <!-- Notifications card -->
-        <div class="card bg-base-200 border border-base-300">
+        <!-- Global speed limit card -->
+        <div class="card bg-base-200 rounded-lg">
             <div class="card-body">
                 <h2 class="card-title gap-2">
-                    <Icon name="bell" class="w-5 h-5 text-warning" />
+                    <Icon name="speedometer" class="w-6 h-6 text-warning" />
+                    Global Speed Limit
+                </h2>
+                <p class="text-sm text-base-content/60 mb-4">
+                    Set the overall network speed limit for all traffic.
+                </p>
+                <input
+                    type="range"
+                    class="range range-warning w-full"
+                    min="0"
+                    :max="LIMIT_PRESETS.length - 1"
+                    :value="limitIndex"
+                    @input="onLimitChange"
+                />
+                <div class="flex justify-between text-xs text-base-content/50 mt-1">
+                    <span v-for="preset in LIMIT_PRESETS" :key="preset.value">{{ preset.label }}</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Notifications card -->
+        <div class="card bg-base-200 rounded-lg">
+            <div class="card-body">
+                <h2 class="card-title gap-2">
+                    <Icon name="bell" class="w-6 h-6 text-warning" />
                     Notifications
                 </h2>
                 <p class="text-sm text-base-content/60 mb-4">
@@ -70,10 +94,10 @@
         </div>
 
         <!-- Settings card -->
-        <div class="card bg-base-200 border border-base-300">
+        <div class="card bg-base-200 rounded-lg">
             <div class="card-body">
                 <h2 class="card-title gap-2">
-                    <Icon name="settings" class="w-5 h-5 text-primary" />
+                    <Icon name="settings" class="w-6 h-6 text-primary" />
                     Settings
                 </h2>
                 <p class="text-sm text-base-content/60 mb-4">
@@ -133,8 +157,58 @@
                 <div v-if="settingsError" class="alert alert-error mt-3 py-2 text-sm">
                     {{ settingsError }}
                 </div>
-                <div v-if="settingsSaved" class="alert alert-success mt-3 py-2 text-sm">
-                    Settings saved.
+            </div>
+        </div>
+
+        <!-- WinDivert card -->
+        <div class="card bg-base-200 rounded-lg">
+            <div class="card-body">
+                <h2 class="card-title gap-2">
+                    <Icon name="settings" class="w-6 h-6 text-info" />
+                    WinDivert
+                </h2>
+                <p class="text-sm text-base-content/60 mb-4">
+                    Packet capture driver required for network monitoring.
+                </p>
+
+                <!-- Status indicators -->
+                <div class="flex items-center gap-4 flex-wrap">
+                    <div class="flex items-center gap-2">
+                        <Icon name="configs" class="w-4 h-4 text-neutral" />
+                        <span class="text-sm">Library:</span>
+                        <span :class="windivertStatus.libraryExists ? 'text-success' : 'text-error'">
+                            {{ windivertStatus.libraryExists ? 'Installed' : 'Missing' }}
+                        </span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <Icon name="settings" class="w-4 h-4 text-neutral" />
+                        <span class="text-sm">Service:</span>
+                        <span :class="windivertStatus.serviceExists ? (windivertStatus.serviceRunning ? 'text-success' : 'text-warning') : 'text-error'">
+                            {{ windivertStatus.serviceExists ? (windivertStatus.serviceRunning ? 'Running' : 'Stopped') : 'Not Created' }}
+                        </span>
+                    </div>
+                </div>
+
+                <!-- Action buttons -->
+                <div class="mt-4 flex gap-2">
+                    <button
+                        v-if="!windivertStatus.libraryExists || !windivertStatus.serviceExists"
+                        class="btn btn-primary btn-sm"
+                        :disabled="installingWindivert"
+                        @click="installWindivertHandler"
+                    >
+                        <span v-if="installingWindivert" class="loading loading-spinner loading-sm mr-2"></span>
+                        Install WinDivert
+                    </button>
+                    <button
+                        v-if="windivertStatus.libraryExists && windivertStatus.serviceExists && !windivertStatus.serviceRunning"
+                        class="btn btn-warning btn-sm"
+                        :disabled="installingWindivert"
+                        @click="startWindivertServiceHandler"
+                    >
+                        <span v-if="installingWindivert" class="loading loading-spinner loading-sm mr-2"></span>
+                        Start Service
+                    </button>
                 </div>
             </div>
         </div>
@@ -142,14 +216,30 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import {
+    checkWinDivertStatus,
     getNotificationConfig,
     getSettings,
+    installWinDivert,
+    setGlobalLimit,
     setNotificationConfig,
     setSettings,
+    startWinDivertService,
 } from '../../services/api.js'
 import Icon from '../Icon.vue'
+
+const emit = defineEmits(['notification'])
+
+// Bandwidth-limit presets: { value: bytes/s (0 = unlimited), label: display string }
+const LIMIT_PRESETS = Object.freeze([
+    { value: 0, label: 'Unlimited' },
+    { value: 131_072, label: '128 KB/s' },
+    { value: 524_288, label: '512 KB/s' },
+    { value: 1_048_576, label: '1 MB/s' },
+    { value: 5_242_880, label: '5 MB/s' },
+    { value: 10_485_760, label: '10 MB/s' },
+])
 
 const notif = reactive({
     newProcessAlert: false,
@@ -160,20 +250,37 @@ const notif = reactive({
 const appSettings = reactive({
     startWithWindows: false,
     minimizeToTray: false,
+    globalLimitBps: 0,
+})
+
+const windivertStatus = reactive({
+    libraryExists: false,
+    serviceExists: false,
+    serviceRunning: false,
 })
 
 const savingSettings = ref(false)
 const settingsError = ref('')
-const settingsSaved = ref(false)
+const installingWindivert = ref(false)
+
+const limitIndex = ref(0)
+const limitLabel = computed(() => LIMIT_PRESETS[limitIndex.value].label)
 
 onMounted(async () => {
     try {
-        const [s, n] = await Promise.all([
+        const [s, n, w] = await Promise.all([
             getSettings(),
             getNotificationConfig(),
+            checkWinDivertStatus(),
         ])
         Object.assign(appSettings, s)
         Object.assign(notif, n)
+        Object.assign(windivertStatus, w)
+        // Set limitIndex based on current globalLimitBps
+        const index = LIMIT_PRESETS.findIndex(p => p.value === appSettings.globalLimitBps)
+        if (index >= 0) {
+            limitIndex.value = index
+        }
     } catch {
         /* ignore — backend may not be fully started */
     }
@@ -182,25 +289,69 @@ onMounted(async () => {
 async function saveNotif() {
     try {
         await setNotificationConfig({ ...notif })
+        emit('notification', { type: 'success', message: 'Notification settings updated' })
     } catch {
-        /* ignore */
+        emit('notification', { type: 'error', message: 'Failed to update notification settings' })
     }
+}
+
+async function saveGlobalLimit(bytesPerSec) {
+    try {
+        await setGlobalLimit(bytesPerSec)
+        emit('notification', { type: 'success', message: 'Global speed limit updated' })
+    } catch {
+        emit('notification', { type: 'error', message: 'Failed to update global speed limit' })
+    }
+}
+
+function onLimitChange(e) {
+    limitIndex.value = Number(e.target.value)
+    const newLimit = LIMIT_PRESETS[limitIndex.value].value
+    appSettings.globalLimitBps = newLimit
+    saveGlobalLimit(newLimit)
 }
 
 async function saveAppSettings() {
     savingSettings.value = true
     settingsError.value = ''
-    settingsSaved.value = false
     try {
         await setSettings({ ...appSettings })
-        settingsSaved.value = true
-        setTimeout(() => {
-            settingsSaved.value = false
-        }, 2500)
+        emit('notification', { type: 'success', message: 'Application settings updated' })
     } catch (e) {
         settingsError.value = String(e)
+        emit('notification', { type: 'error', message: 'Failed to update application settings' })
     } finally {
         savingSettings.value = false
+    }
+}
+
+async function installWindivertHandler() {
+    installingWindivert.value = true
+    try {
+        await installWinDivert()
+        emit('notification', { type: 'success', message: 'WinDivert installed successfully' })
+        // Refresh status
+        const status = await checkWinDivertStatus()
+        Object.assign(windivertStatus, status)
+    } catch (e) {
+        emit('notification', { type: 'error', message: `Failed to install WinDivert: ${e}` })
+    } finally {
+        installingWindivert.value = false
+    }
+}
+
+async function startWindivertServiceHandler() {
+    installingWindivert.value = true
+    try {
+        await startWinDivertService()
+        emit('notification', { type: 'success', message: 'WinDivert service started successfully' })
+        // Refresh status
+        const status = await checkWinDivertStatus()
+        Object.assign(windivertStatus, status)
+    } catch (e) {
+        emit('notification', { type: 'error', message: `Failed to start WinDivert service: ${e}` })
+    } finally {
+        installingWindivert.value = false
     }
 }
 </script>

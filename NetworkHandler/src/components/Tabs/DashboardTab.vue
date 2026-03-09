@@ -1,27 +1,23 @@
 <template>
     <div>
-        <!-- 24-hour total tiles -->
-    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
-        <div class="bg-base-200 rounded-lg p-4 flex items-center gap-3">
-            <Icon name="arrowDown" class="w-8 h-8 text-info" />
-            <div>
-                <div class="text-base-content/70 text-sm">24h Download</div>
-                <div class="text-2xl font-bold text-info">{{ formatBytes(totals.downloadBytes) }}</div>
-                <div class="text-xs text-base-content/50">completed hours only</div>
+        <!-- Combined stats tiles -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+            <div class="bg-base-200 rounded-lg p-4 flex items-center gap-3">
+                <Icon name="arrowDown" class="w-8 h-8 text-info" />
+                <div>
+                    <div class="text-base-content/70 text-sm">24h Download</div>
+                    <div class="text-2xl font-bold text-info">{{ formatBytes(totals.downloadBytes) }}</div>
+                    <div class="text-xs text-base-content/50">completed hours only</div>
+                </div>
             </div>
-        </div>
-        <div class="bg-base-200 rounded-lg p-4 flex items-center gap-3">
-            <Icon name="arrowUp" class="w-8 h-8 text-success" />
-            <div>
-                <div class="text-base-content/70 text-sm">24h Upload</div>
-                <div class="text-2xl font-bold text-success">{{ formatBytes(totals.uploadBytes) }}</div>
-                <div class="text-xs text-base-content/50">completed hours only</div>
+            <div class="bg-base-200 rounded-lg p-4 flex items-center gap-3">
+                <Icon name="arrowUp" class="w-8 h-8 text-success" />
+                <div>
+                    <div class="text-base-content/70 text-sm">24h Upload</div>
+                    <div class="text-2xl font-bold text-success">{{ formatBytes(totals.uploadBytes) }}</div>
+                    <div class="text-xs text-base-content/50">completed hours only</div>
+                </div>
             </div>
-        </div>
-    </div>
-
-    <!-- Live speed tiles -->
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
             <div class="bg-base-200 rounded-lg p-4 flex items-center gap-3">
                 <Icon name="arrowDown" class="w-8 h-8 text-info" />
                 <div>
@@ -41,28 +37,8 @@
         </div>
 
         <!-- dB bandwidth chart -->
-        <div class="bg-base-200 rounded-lg p-4 mb-6">
-            <Line :data="chartData" :options="chartOptions" />
-        </div>
-
-        <!-- Global speed limit slider -->
         <div class="bg-base-200 rounded-lg p-4">
-            <div class="flex items-center gap-3 mb-2">
-                <Icon name="speedometer" class="w-6 h-6 text-warning" />
-                <span class="font-semibold">Global Speed Limit</span>
-                <span class="badge badge-warning ml-auto">{{ limitLabel }}</span>
-            </div>
-            <input
-                type="range"
-                class="range range-warning w-full"
-                min="0"
-                :max="LIMIT_PRESETS.length - 1"
-                :value="limitIndex"
-                @input="onLimitChange"
-            />
-            <div class="flex justify-between text-xs text-base-content/50 mt-1">
-                <span v-for="preset in LIMIT_PRESETS" :key="preset.value">{{ preset.label }}</span>
-            </div>
+            <Line :data="chartData" :options="chartOptions" />
         </div>
     </div>
 </template>
@@ -95,16 +71,6 @@ ChartJS.register(
     Filler,
 )
 
-// Bandwidth-limit presets: { value: bytes/s (0 = unlimited), label: display string }
-const LIMIT_PRESETS = Object.freeze([
-    { value: 0, label: 'Unlimited' },
-    { value: 131_072, label: '128 KB/s' },
-    { value: 524_288, label: '512 KB/s' },
-    { value: 1_048_576, label: '1 MB/s' },
-    { value: 5_242_880, label: '5 MB/s' },
-    { value: 10_485_760, label: '10 MB/s' },
-])
-
 const props = defineProps({
     downloadHistory: { type: Array, default: () => [] },
     uploadHistory: { type: Array, default: () => [] },
@@ -114,11 +80,6 @@ const props = defineProps({
         default: () => ({ downloadBytes: 0, uploadBytes: 0 }),
     },
 })
-
-const emit = defineEmits(['limit-change'])
-
-const limitIndex = ref(0)
-const limitLabel = computed(() => LIMIT_PRESETS[limitIndex.value].label)
 
 const currentDownload = computed(() => props.downloadHistory.at(-1) ?? 0)
 const currentUpload = computed(() => props.uploadHistory.at(-1) ?? 0)
@@ -194,10 +155,5 @@ const chartOptions = {
             title: { display: true, text: 'dBbps', color: CHART_TEXT_COLOR },
         },
     },
-}
-
-function onLimitChange(e) {
-    limitIndex.value = Number(e.target.value)
-    emit('limit-change', LIMIT_PRESETS[limitIndex.value].value)
 }
 </script>
