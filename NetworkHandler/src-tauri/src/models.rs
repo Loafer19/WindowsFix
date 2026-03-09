@@ -19,6 +19,10 @@ pub struct ProcessInfo {
     pub download_bps: u64,
     #[serde(rename = "uploadBps")]
     pub upload_bps: u64,
+    #[serde(rename = "totalDownloadBytes")]
+    pub total_download_bytes: u64,
+    #[serde(rename = "totalUploadBytes")]
+    pub total_upload_bytes: u64,
     pub blocked: bool,
     #[serde(rename = "limitBps")]
     pub limit_bps: u64,
@@ -32,6 +36,7 @@ pub struct BandwidthWindow {
 pub struct AppState {
     pub window: Arc<Mutex<BandwidthWindow>>,
     pub process_bytes: Arc<Mutex<HashMap<u32, (u64, u64)>>>,
+    pub process_total_bytes: Arc<Mutex<HashMap<u32, (u64, u64)>>>,
     pub process_names: Arc<Mutex<HashMap<u32, String>>>,
     pub blocked_pids: Arc<Mutex<HashSet<u32>>>,
     pub process_limits: Arc<Mutex<HashMap<u32, u64>>>,
@@ -47,6 +52,7 @@ impl AppState {
                 upload_bytes: 0,
             })),
             process_bytes: Arc::new(Mutex::new(HashMap::new())),
+            process_total_bytes: Arc::new(Mutex::new(HashMap::new())),
             process_names: Arc::new(Mutex::new(HashMap::new())),
             blocked_pids: Arc::new(Mutex::new(HashSet::new())),
             process_limits: Arc::new(Mutex::new(HashMap::new())),

@@ -22,7 +22,7 @@
         "dev": "vite",
         "tauri": "tauri",
         "tauri:build": "tauri build",
-        "tauri:dev": "tauri dev"
+        "tauri:dev": "tauri dev --release"
     },
     "type": "module",
     "version": "0.1.0"

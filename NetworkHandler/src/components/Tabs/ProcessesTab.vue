@@ -5,13 +5,13 @@
             <Button class="btn btn-ghost btn-square" @clicked="searchQuery = ''"><Icon name="refresh" /></Button>
         </div>
         <div v-if="filtered.length === 0" class="text-center py-12">
-            <h3 class="text-lg font-bold text-base-content">No active network processes</h3>
+            <h3 class="text-lg font-bold text-base-content">No processes with network activity</h3>
             <p class="mt-1 text-base-content/70">Waiting for network activity...</p>
         </div>
         <div v-else class="overflow-x-auto">
             <table class="table">
                 <thead><tr>
-                    <th>Process</th><th>PID</th><th>Download</th><th>Upload</th>
+                    <th>Process</th><th>PID</th><th>Download</th><th>Upload</th><th>Total Download</th><th>Total Upload</th>
                     <th class="min-w-36">Throttle (KB/s)</th><th>Actions</th>
                 </tr></thead>
                 <tbody>
@@ -20,6 +20,8 @@
                         <td class="text-base-content/70 font-mono text-sm">{{ proc.pid }}</td>
                         <td><span class="badge badge-info font-mono">{{ formatSpeed(proc.downloadBps) }}</span></td>
                         <td><span class="badge badge-success font-mono">{{ formatSpeed(proc.uploadBps) }}</span></td>
+                        <td><span class="badge badge-info font-mono">{{ formatBytes(proc.totalDownloadBytes) }}</span></td>
+                        <td><span class="badge badge-success font-mono">{{ formatBytes(proc.totalUploadBytes) }}</span></td>
                         <td>
                             <div class="flex items-center gap-1">
                                 <input type="number" class="input input-bordered input-sm w-24 font-mono" min="0" placeholder="no limit"
@@ -61,7 +63,7 @@
 import { computed, ref } from 'vue'
 import Button from '../Button.vue'
 import Icon from '../Icon.vue'
-import { formatSpeed } from '../../composables/useNetwork.js'
+import { formatSpeed, formatBytes } from '../../composables/useNetwork.js'
 
 const props = defineProps({
     processes: { type: Array, default: () => [] },

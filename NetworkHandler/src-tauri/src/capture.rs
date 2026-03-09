@@ -6,11 +6,7 @@ use std::time::{Duration, Instant};
 
 use governor::{DefaultDirectRateLimiter, Quota, RateLimiter};
 use netstat2::{get_sockets_info, AddressFamilyFlags, ProtocolFlags, ProtocolSocketInfo};
-use pnet::packet::ip::IpNextHeaderProtocols;
-use pnet::packet::ipv4::Ipv4Packet;
-use pnet::packet::tcp::TcpPacket;
-use pnet::packet::udp::UdpPacket;
-use pnet::packet::Packet;
+
 use windivert::prelude::WinDivertFlags;
 use windivert::WinDivert;
 
@@ -90,6 +86,7 @@ pub fn capture_loop(state: Arc<AppState>) {
         Ok(h) => h,
         Err(e) => {
             eprintln!("WinDivert open failed: {e}");
+            eprintln!("Please ensure WinDivert is installed. Download from https://www.reqrypt.org/windivert.html");
             return;
         }
     };
@@ -197,6 +194,16 @@ pub fn capture_loop(state: Arc<AppState>) {
             }
             drop(pb);
 
+            // Accumulate total per-process bytes
+            let mut ptb = state.process_total_bytes.lock().unwrap();
+            let total_entry = ptb.entry(pid).or_insert((0, 0));
+            if is_outbound {
+                total_entry.1 = total_entry.1.saturating_add(pkt_len);
+            } else {
+                total_entry.0 = total_entry.0.saturating_add(pkt_len);
+            }
+            drop(ptb);
+
             // Cache process name on first sight
             state
                 .process_names
@@ -231,12 +238,34 @@ pub fn capture_loop(state: Arc<AppState>) {
 }
 
 fn extract_local_port(data: &[u8], outbound: bool) -> Option<u16> {
-    let ip4 = Ipv4Packet::new(data)?;
-    match ip4.get_next_level_protocol() {
-        IpNextHeaderProtocols::Tcp => TcpPacket::new(ip4.payload())
-            .map(|t| if outbound { t.get_source() } else { t.get_destination() }),
-        IpNextHeaderProtocols::Udp => UdpPacket::new(ip4.payload())
-            .map(|u| if outbound { u.get_source() } else { u.get_destination() }),
+    if data.len() < 20 {
+        return None;
+    }
+    let ihl = (data[0] & 0x0F) as usize * 4;
+    if data.len() < ihl + 4 {
+        return None;
+    }
+    let protocol = data[9];
+    let payload = &data[ihl..];
+    match protocol {
+        6 => { // TCP
+            if payload.len() >= 4 {
+                let src_port = u16::from_be_bytes([payload[0], payload[1]]);
+                let dst_port = u16::from_be_bytes([payload[2], payload[3]]);
+                Some(if outbound { src_port } else { dst_port })
+            } else {
+                None
+            }
+        }
+        17 => { // UDP
+            if payload.len() >= 4 {
+                let src_port = u16::from_be_bytes([payload[0], payload[1]]);
+                let dst_port = u16::from_be_bytes([payload[2], payload[3]]);
+                Some(if outbound { src_port } else { dst_port })
+            } else {
+                None
+            }
+        }
         _ => None,
     }
 }

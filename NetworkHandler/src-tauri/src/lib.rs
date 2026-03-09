@@ -49,38 +49,39 @@ async fn get_network_stats(state: State<'_, Arc<AppState>>) -> Result<NetworkSta
 #[tauri::command]
 async fn get_processes(state: State<'_, Arc<AppState>>) -> Result<Vec<ProcessInfo>, String> {
     let pb = state.process_bytes.lock().unwrap().clone();
+    let ptb = state.process_total_bytes.lock().unwrap().clone();
     let pn = state.process_names.lock().unwrap().clone();
     let blocked = state.blocked_pids.lock().unwrap().clone();
     let limits = state.process_limits.lock().unwrap().clone();
 
-    let mut list: Vec<ProcessInfo> = pb
-        .iter()
-        .map(|(&pid, &(dl, ul))| ProcessInfo {
-            pid,
-            name: pn.get(&pid).cloned().unwrap_or_else(|| format!("PID {pid}")),
-            download_bps: dl,
-            upload_bps: ul,
-            blocked: blocked.contains(&pid),
-            limit_bps: limits.get(&pid).copied().unwrap_or(0),
+    // Collect all unique PIDs from current and total
+    let mut all_pids: std::collections::HashSet<u32> = pb.keys().cloned().collect();
+    all_pids.extend(ptb.keys().cloned());
+    all_pids.extend(blocked.iter().cloned());
+
+    let mut list: Vec<ProcessInfo> = all_pids
+        .into_iter()
+        .map(|pid| {
+            let (dl_bps, ul_bps) = pb.get(&pid).copied().unwrap_or((0, 0));
+            let (dl_total, ul_total) = ptb.get(&pid).copied().unwrap_or((0, 0));
+            ProcessInfo {
+                pid,
+                name: pn.get(&pid).cloned().unwrap_or_else(|| format!("PID {pid}")),
+                download_bps: dl_bps,
+                upload_bps: ul_bps,
+                total_download_bytes: dl_total,
+                total_upload_bytes: ul_total,
+                blocked: blocked.contains(&pid),
+                limit_bps: limits.get(&pid).copied().unwrap_or(0),
+            }
         })
         .collect();
 
-    // Include blocked-but-idle processes
-    for &pid in blocked.iter() {
-        if !pb.contains_key(&pid) {
-            list.push(ProcessInfo {
-                pid,
-                name: pn.get(&pid).cloned().unwrap_or_else(|| format!("PID {pid}")),
-                download_bps: 0,
-                upload_bps: 0,
-                blocked: true,
-                limit_bps: limits.get(&pid).copied().unwrap_or(0),
-            });
-        }
-    }
+    // Filter out processes with no historical activity
+    list.retain(|p| p.total_download_bytes > 0 || p.total_upload_bytes > 0);
 
     list.sort_by(|a, b| {
-        (b.download_bps + b.upload_bps).cmp(&(a.download_bps + a.upload_bps))
+        (b.total_download_bytes + b.total_upload_bytes).cmp(&(a.total_download_bytes + a.total_upload_bytes))
     });
     Ok(list)
 }
@@ -189,7 +190,7 @@ async fn free_process_ports(pid: u32) -> Result<u32, String> {
                 dwRemoteAddr: remote_addr,
                 dwRemotePort: remote_port,
             };
-            if SetTcpEntry(&mut row).is_ok() {
+            if SetTcpEntry(&mut row) == 0 {
                 closed += 1;
             }
         }
