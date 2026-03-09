@@ -134,7 +134,7 @@ pub fn capture_loop(state: Arc<AppState>) {
             // Check whether we have entered a new hour
             let new_hour = current_unix_hour();
             if new_hour != current_hour {
-                advance_hourly(&state, new_hour, current_hour, &proc_hourly_acc, global_hourly_acc);
+                advance_hourly(&state, current_hour, new_hour, &proc_hourly_acc, global_hourly_acc);
                 proc_hourly_acc.clear();
                 global_hourly_acc = (0, 0);
                 current_hour = new_hour;
@@ -275,8 +275,8 @@ pub fn capture_loop(state: Arc<AppState>) {
 /// and persists the global history to disk.
 fn advance_hourly(
     state: &AppState,
-    new_hour: u64,
     old_hour: u64,
+    new_hour: u64,
     proc_acc: &HashMap<u32, (u64, u64)>,
     global_acc: (u64, u64),
 ) {

@@ -25,7 +25,9 @@ pub fn load() -> AppData {
 
 pub fn save(data: &AppData) -> Result<(), String> {
     let path = data_path();
-    let dir = path.parent().expect("data path has no parent");
+    let dir = path
+        .parent()
+        .ok_or_else(|| format!("Cannot determine parent directory of '{}'", path.display()))?;
     std::fs::create_dir_all(dir).map_err(|e| format!("Dir: {e}"))?;
     let json = serde_json::to_string(data).map_err(|e| format!("JSON: {e}"))?;
     std::fs::write(&path, json).map_err(|e| format!("Write: {e}"))
