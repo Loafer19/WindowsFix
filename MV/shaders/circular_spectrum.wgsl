@@ -14,7 +14,7 @@ struct Uniforms {
     bass_energy: f32,
     smoothing_factor: f32,
     gain: f32,
-    padding4: f32,
+    beat_intensity: f32,
 };
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
@@ -69,17 +69,18 @@ fn fs_main(@builtin(position) coord: vec4<f32>) -> @location(0) vec4<f32> {
     // Draw bar between inner_r and bar_end_r
     if radius >= inner_r && radius <= bar_end_r {
         let t   = (radius - inner_r) / max(bar_end_r - inner_r, 0.001);
-        let val = 0.45 + t * 0.55;
+        // Beat flash: boost value on strong beats
+        let val = clamp(0.45 + t * 0.55 + uniforms.beat_intensity * 0.4, 0.0, 1.0);
         return vec4<f32>(hsv_to_rgb(hue, 0.90, val), 1.0);
     }
 
-    // Thin inner ring highlight
+    // Thin inner ring highlight – pulses with beat
     if radius < inner_r && radius > inner_r - 2.0 {
-        let glow = uniforms.bass_energy;
+        let glow = clamp(uniforms.bass_energy + uniforms.beat_intensity * 0.6, 0.0, 1.0);
         return vec4<f32>(hsv_to_rgb(uniforms.time * 0.1, 0.8, glow), 1.0);
     }
 
-    // Outside max circle: dark background with subtle radial glow from bass
-    let bg_glow = uniforms.bass_energy * 0.12 * exp(-pow((radius / max_radius - 1.1) * 3.0, 2.0));
+    // Outside max circle: dark background with subtle radial glow from bass + beat
+    let bg_glow = (uniforms.bass_energy + uniforms.beat_intensity * 0.3) * 0.12 * exp(-pow((radius / max_radius - 1.1) * 3.0, 2.0));
     return vec4<f32>(bg_glow * 0.4, bg_glow * 0.2, bg_glow, 1.0);
 }

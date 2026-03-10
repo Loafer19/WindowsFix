@@ -14,7 +14,7 @@ struct Uniforms {
     bass_energy: f32,
     smoothing_factor: f32,
     gain: f32,
-    padding4: f32,
+    beat_intensity: f32,
 };
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
@@ -89,7 +89,9 @@ fn fs_main(@builtin(position) coord: vec4<f32>) -> @location(0) vec4<f32> {
             }
         }
         shade = clamp(shade, 0.0, 1.0);
-        return vec4<f32>(hsv_to_rgb(hue, 0.85, shade), 1.0);
+        // Beat flash: boost brightness on beat
+        let beat_boost = uniforms.beat_intensity * 0.35;
+        return vec4<f32>(hsv_to_rgb(hue, 0.85, clamp(shade + beat_boost, 0.0, 1.0)), 1.0);
     }
 
     // Subtle floor reflection
@@ -99,7 +101,8 @@ fn fs_main(@builtin(position) coord: vec4<f32>) -> @location(0) vec4<f32> {
         return vec4<f32>(hsv_to_rgb(hue, 0.85, 0.10 * fade * fade), 1.0);
     }
 
-    // Background
+    // Background with subtle beat pulse
     let bg = from_bottom / uniforms.resolution.y * 0.05;
-    return vec4<f32>(bg * 0.5, bg * 0.5, bg, 1.0);
+    let bg_beat = uniforms.beat_intensity * 0.03;
+    return vec4<f32>((bg + bg_beat) * 0.5, (bg + bg_beat) * 0.5, bg + bg_beat, 1.0);
 }

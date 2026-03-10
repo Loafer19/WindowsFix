@@ -4,7 +4,7 @@ use crate::audio::AudioHandler;
 use crate::constants::*;
 use crate::error::AppResult;
 use crate::gpu::GpuResources;
-use crate::settings::{AppSettings, ColorScheme};
+use crate::settings::{AppSettings, BeatSensitivity, ColorScheme};
 use crate::types::VisUniforms;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -18,9 +18,14 @@ use raw_window_handle::HasWindowHandle;
 #[cfg(target_os = "windows")]
 use windows::Win32::Foundation::{COLORREF, HWND};
 #[cfg(target_os = "windows")]
-use windows::Win32::UI::WindowsAndMessaging::{SetLayeredWindowAttributes, LAYERED_WINDOW_ATTRIBUTES_FLAGS};
+use windows::Win32::UI::WindowsAndMessaging::{
+    SetLayeredWindowAttributes, SetWindowPos, LAYERED_WINDOW_ATTRIBUTES_FLAGS,
+    HWND_NOTOPMOST, HWND_TOPMOST, SWP_NOMOVE, SWP_NOSIZE,
+};
 #[cfg(target_os = "windows")]
-use windows::Win32::UI::WindowsAndMessaging::{GetWindowLongPtrW, SetWindowLongPtrW, GWL_EXSTYLE, WS_EX_LAYERED};
+use windows::Win32::UI::WindowsAndMessaging::{
+    GetWindowLongPtrW, SetWindowLongPtrW, GWL_EXSTYLE, WS_EX_LAYERED, WS_EX_TRANSPARENT,
+};
 
 pub struct App {
     window: Option<Arc<Window>>,
@@ -29,6 +34,8 @@ pub struct App {
     uniforms: VisUniforms,
     current_plugin_index: usize,
     transparent: bool,
+    /// Full overlay mode: always-on-top + semi-transparent + click-through.
+    overlay_mode: bool,
     transparency_level: u8,
     show_info: bool,
     info_timer: Option<Instant>,
@@ -62,10 +69,11 @@ impl App {
                 bass_energy: 0.0,
                 smoothing_factor: 0.1,
                 gain: 1.5,
-                padding4: 0.0,
+                beat_intensity: 0.0,
             },
             current_plugin_index: 0,
             transparent: false,
+            overlay_mode: false,
             transparency_level: DEFAULT_TRANSPARENCY,
             show_info: false,
             info_timer: None,
@@ -149,7 +157,12 @@ impl App {
             self.uniforms.color = self.settings.scheme_color();
 
             let audio_data = self.audio.buffer.lock().unwrap().clone();
-            gpu.update(&self.uniforms, &audio_data);
+            let beat_threshold = match self.settings.beat_sensitivity {
+                BeatSensitivity::Low    => BEAT_THRESHOLD_HIGH,
+                BeatSensitivity::Medium => BEAT_THRESHOLD_MED,
+                BeatSensitivity::High   => BEAT_THRESHOLD_LOW,
+            };
+            gpu.update(&self.uniforms, &audio_data, beat_threshold);
         }
     }
 
@@ -185,7 +198,7 @@ impl App {
             egui::Window::new("ℹ Controls")
                 .open(&mut show_info)
                 .resizable(false)
-                .default_width(280.0)
+                .default_width(300.0)
                 .show(ctx, |ui| {
                     ui.vertical_centered(|ui| {
                         ui.heading(format!("Mode: {}", plugin_name));
@@ -195,14 +208,15 @@ impl App {
                     ui.add_space(5.0);
 
                     let controls = [
-                        ("F1", "Toggle info panel"),
-                        ("F2", "Open settings"),
-                        ("F11", "Toggle fullscreen"),
+                        ("F1",        "Toggle info panel"),
+                        ("F2",        "Open settings"),
+                        ("F11",       "Toggle fullscreen"),
                         ("Space / M", "Switch visualization mode"),
-                        ("T", "Toggle transparency"),
-                        ("← / →", "Adjust opacity"),
-                        ("↑ / ↓", "Adjust intensity"),
-                        ("Esc", "Exit application"),
+                        ("T",         "Cycle window: Normal → Transparent → Overlay (always-on-top + click-through)"),
+                        ("← / →",    "Adjust opacity"),
+                        ("↑ / ↓",    "Adjust intensity"),
+                        ("B",         "Cycle beat sensitivity: Low / Medium / High"),
+                        ("Esc",       "Exit application"),
                     ];
 
                     for (key, desc) in controls {
@@ -229,6 +243,13 @@ impl App {
                         ui.selectable_value(&mut settings_copy.color_scheme, ColorScheme::Neon,    "Neon");
                         ui.selectable_value(&mut settings_copy.color_scheme, ColorScheme::Pastel,  "Pastel");
                         ui.selectable_value(&mut settings_copy.color_scheme, ColorScheme::Fire,    "Fire");
+                    });
+                    ui.separator();
+                    ui.label("Beat Detection Sensitivity:");
+                    ui.horizontal(|ui| {
+                        ui.selectable_value(&mut settings_copy.beat_sensitivity, BeatSensitivity::Low,    "Low");
+                        ui.selectable_value(&mut settings_copy.beat_sensitivity, BeatSensitivity::Medium, "Medium");
+                        ui.selectable_value(&mut settings_copy.beat_sensitivity, BeatSensitivity::High,   "High");
                     });
                     ui.separator();
                     ui.checkbox(&mut settings_copy.auto_switch_modes, "Auto-switch modes");
@@ -285,15 +306,41 @@ impl App {
             if let raw_window_handle::RawWindowHandle::Win32(win32_handle) = window_handle.as_ref() {
                 let hwnd = HWND(win32_handle.hwnd.get() as isize);
                 unsafe {
-                    if self.transparent {
-                        let ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
-                        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex_style | WS_EX_LAYERED.0 as isize);
+                    if self.transparent || self.overlay_mode {
+                        let mut ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+                        ex_style |= WS_EX_LAYERED.0 as isize;
+                        if self.overlay_mode {
+                            // Click-through: add WS_EX_TRANSPARENT so mouse events fall through.
+                            ex_style |= WS_EX_TRANSPARENT.0 as isize;
+                        } else {
+                            // Regular transparency: remove click-through flag.
+                            ex_style &= !(WS_EX_TRANSPARENT.0 as isize);
+                        }
+                        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex_style);
                         let alpha = (self.settings.transparency * 255.0).clamp(25.0, 255.0) as u8;
                         let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), alpha, LAYERED_WINDOW_ATTRIBUTES_FLAGS(2));
                     } else {
                         let ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
-                        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex_style & !(WS_EX_LAYERED.0 as isize));
+                        SetWindowLongPtrW(
+                            hwnd,
+                            GWL_EXSTYLE,
+                            ex_style & !(WS_EX_LAYERED.0 as isize) & !(WS_EX_TRANSPARENT.0 as isize),
+                        );
                     }
+                }
+            }
+        }
+    }
+
+    /// Set or clear the always-on-top (topmost) flag for the window on Windows.
+    #[cfg(target_os = "windows")]
+    fn set_topmost(&self, window: &Window, topmost: bool) {
+        if let Ok(window_handle) = window.window_handle() {
+            if let raw_window_handle::RawWindowHandle::Win32(win32_handle) = window_handle.as_ref() {
+                let hwnd = HWND(win32_handle.hwnd.get() as isize);
+                let insert_after = if topmost { HWND_TOPMOST } else { HWND_NOTOPMOST };
+                unsafe {
+                    let _ = SetWindowPos(hwnd, insert_after, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
                 }
             }
         }
@@ -309,7 +356,7 @@ impl App {
         }
         self.transparency_level = (self.settings.transparency * 255.0) as u8;
         println!("Opacity: {}%", (self.settings.transparency * 100.0) as u32);
-        if self.transparent {
+        if self.transparent || self.overlay_mode {
             if let Some(window) = self.window.clone() {
                 self.apply_transparency(&window);
             }
@@ -383,15 +430,48 @@ impl App {
                 }
             }
             PhysicalKey::Code(KeyCode::KeyT) => {
-                if let Some(window) = &self.window {
-                    self.transparent = !self.transparent;
-                    #[cfg(target_os = "windows")]
-                    self.apply_transparency(window);
-                    #[cfg(not(target_os = "windows"))]
-                    {
-                        let _ = window.set_transparent(self.transparent);
+                // Cycle: Normal → Transparent → Overlay (always-on-top + click-through) → Normal
+                if let Some(window) = self.window.clone() {
+                    if !self.transparent && !self.overlay_mode {
+                        // Normal → Transparent
+                        self.transparent = true;
+                        self.overlay_mode = false;
+                        println!("Mode: Transparent");
+                        #[cfg(target_os = "windows")]
+                        {
+                            self.apply_transparency(&window);
+                            self.set_topmost(&window, false);
+                        }
+                        #[cfg(not(target_os = "windows"))]
+                        { let _ = window.set_transparent(true); }
+                    } else if self.transparent && !self.overlay_mode {
+                        // Transparent → Overlay
+                        self.transparent = true;
+                        self.overlay_mode = true;
+                        println!("Mode: Overlay (always-on-top + click-through)");
+                        #[cfg(target_os = "windows")]
+                        {
+                            self.apply_transparency(&window);
+                            self.set_topmost(&window, true);
+                        }
+                    } else {
+                        // Overlay → Normal
+                        self.transparent = false;
+                        self.overlay_mode = false;
+                        println!("Mode: Normal");
+                        #[cfg(target_os = "windows")]
+                        {
+                            self.apply_transparency(&window);
+                            self.set_topmost(&window, false);
+                        }
+                        #[cfg(not(target_os = "windows"))]
+                        { let _ = window.set_transparent(false); }
                     }
                 }
+            }
+            PhysicalKey::Code(KeyCode::KeyB) => {
+                self.settings.beat_sensitivity = self.settings.beat_sensitivity.next();
+                println!("Beat sensitivity: {}", self.settings.beat_sensitivity.label());
             }
             PhysicalKey::Code(KeyCode::ArrowLeft) => {
                 #[cfg(target_os = "windows")]

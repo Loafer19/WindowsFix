@@ -17,7 +17,9 @@ pub struct VisUniforms {
     pub bass_energy: f32,
     pub smoothing_factor: f32,
     pub gain: f32,
-    pub padding4: f32,
+    /// Instantaneous beat intensity (0.0 = no beat, 1.0 = strong beat).
+    /// Decays each frame so shaders receive a smooth pulse on every detected beat.
+    pub beat_intensity: f32,
 }
 
 /// Particle structure for GPU
