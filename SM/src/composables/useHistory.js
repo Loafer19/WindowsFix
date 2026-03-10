@@ -13,11 +13,21 @@ export function useHistory() {
         }
     }
 
-    function addToHistory(service) {
+    function addToHistory(
+        service,
+        action,
+        previousStatus,
+        previousStartupType,
+    ) {
         const entry = {
             name: service.name,
             displayName: service.displayName,
-            disabledAt: new Date().toISOString(),
+            action,
+            previousStatus,
+            previousStartupType,
+            newStatus: service.status,
+            newStartupType: service.startupType,
+            changedAt: new Date().toISOString(),
         }
         history.value = [entry, ...history.value]
         localStorage.setItem(STORAGE_KEY, JSON.stringify(history.value))

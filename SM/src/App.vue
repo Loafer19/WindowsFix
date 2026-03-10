@@ -15,9 +15,12 @@
                     <component :is="activeTab" :servicesByStatus="servicesByStatus"
                         :servicesByStartupType="servicesByStartupType" :totalServices="totalServices"
                         :filteredCount="filteredServices.length" :totalCount="totalServices" :searchQuery="searchQuery"
-                        :selectedStatus="selectedStatus" :selectedStartupType="selectedStartupType" :history="history"
+                        :selectedStatus="selectedStatus" :selectedStartupType="selectedStartupType"
+                        :sortBy="sortBy" :sortDir="sortDir"
+                        :history="history"
                         @filter="handleFilter" @refresh="refresh" @clear-filters="clearFilters"
-                        @clear-history="clearHistory" />
+                        @clear-history="clearHistory"
+                        @apply-preset="openPresetModal" />
                 </div>
             </div>
 
@@ -93,7 +96,10 @@
         @confirm="confirmDisable" />
 
     <ServiceDetailsModal :showModal="showDetailsModal" :selectedService="selectedServiceForDetails"
-        @close="showDetailsModal = false" @reload="reloadInfo" />
+        @close="showDetailsModal = false" @reload="reloadInfo" @action="handleServiceAction" />
+
+    <PresetConfirmModal :showModal="showPresetModal" :preset="selectedPreset" :applying="applyingPreset"
+        @close="showPresetModal = false" @confirm="applyPreset" />
 </template>
 
 <script setup>
@@ -101,10 +107,12 @@ import { markRaw, onMounted, ref } from 'vue'
 import Button from './components/Button.vue'
 import Icon from './components/Icon.vue'
 import ConfirmDisableModal from './components/Modals/ConfirmDisableModal.vue'
+import PresetConfirmModal from './components/Modals/PresetConfirmModal.vue'
 import ServiceDetailsModal from './components/Modals/ServiceDetailsModal.vue'
 import AnalyticsTab from './components/Tabs/AnalyticsTab.vue'
 import FiltersTab from './components/Tabs/FiltersTab.vue'
 import HistoryTab from './components/Tabs/HistoryTab.vue'
+import PresetsTab from './components/Tabs/PresetsTab.vue'
 import { useAnalytics } from './composables/useAnalytics.js'
 import { useFiltering } from './composables/useFiltering.js'
 import { useHistory } from './composables/useHistory.js'
@@ -114,6 +122,10 @@ import {
     loadServices,
     refreshServices,
     reloadServiceInfo,
+    restartService,
+    setStartupType,
+    startService,
+    stopService,
 } from './services/api.js'
 import { getStartupTypeColor, getStatusColor } from './services/helpers.js'
 
@@ -136,6 +148,12 @@ const tabs = ref([
         component: markRaw(HistoryTab),
         icon: 'history',
     },
+    {
+        id: 'presets',
+        name: 'Presets',
+        component: markRaw(PresetsTab),
+        icon: 'lightning',
+    },
 ])
 
 const activeTab = ref(markRaw(FiltersTab))
@@ -152,6 +170,8 @@ const {
     searchQuery,
     selectedStatus,
     selectedStartupType,
+    sortBy,
+    sortDir,
     filterServices,
     handleFilter,
     clearFilters,
@@ -169,6 +189,11 @@ const {
 
 const { history, addToHistory, clearHistory } = useHistory()
 
+// Preset state
+const showPresetModal = ref(false)
+const selectedPreset = ref(null)
+const applyingPreset = ref(false)
+
 const confirmDisable = () => confirmDisableModal(disable)
 
 onMounted(async () => {
@@ -180,7 +205,8 @@ const loadServicesData = async () => {
         loading.value = true
         error.value = false
         const data = await loadServices()
-        allServices.value = data.sort((a, b) => a.name.localeCompare(b.name))
+        // Raw data is stored unsorted; useFiltering handles all sorting via sortBy/sortDir
+        allServices.value = data
         filterServices()
     } catch (err) {
         console.error('Failed to load services:', err)
@@ -233,19 +259,126 @@ const reloadInfo = async (service) => {
     }
 }
 
+const handleServiceAction = async (service, payload) => {
+    service.isActioning = true
+    service.actionError = ''
+    const previousStatus = service.status
+    const previousStartupType = service.startupType
+
+    try {
+        let updated = null
+        let actionLabel = ''
+
+        if (payload.action === 'start') {
+            updated = await startService(service.name)
+            actionLabel = 'Started'
+        } else if (payload.action === 'stop') {
+            updated = await stopService(service.name)
+            actionLabel = 'Stopped'
+        } else if (payload.action === 'restart') {
+            updated = await restartService(service.name)
+            actionLabel = 'Restarted'
+        } else if (payload.action === 'startup') {
+            updated = await setStartupType(service.name, payload.startupType)
+            actionLabel = 'Startup Type Changed'
+        }
+
+        if (updated) {
+            service.status = updated.status
+            service.startupType = updated.startupType
+
+            const original = allServices.value.find(
+                (s) => s.name === service.name,
+            )
+            if (original) {
+                original.status = updated.status
+                original.startupType = updated.startupType
+            }
+
+            addToHistory(
+                service,
+                actionLabel,
+                previousStatus,
+                previousStartupType,
+            )
+            filterServices()
+        }
+    } catch (err) {
+        console.error('Service action failed:', err)
+        service.actionError = err?.message || String(err)
+    } finally {
+        service.isActioning = false
+    }
+}
+
 const disable = async (service) => {
     service.isDisabling = true
+    const previousStatus = service.status
+    const previousStartupType = service.startupType
 
     try {
         const data = await disableService(service.name)
-        addToHistory(service)
+        addToHistory(
+            { ...service, status: data.status, startupType: data.startupType },
+            'Disabled',
+            previousStatus,
+            previousStartupType,
+        )
         Object.assign(service, data)
+        filterServices()
     } catch (error) {
         console.error('Failed to disable service:', error)
         service.info = { error: true, message: 'Failed to disable service' }
     } finally {
         service.isDisabling = false
     }
+}
+
+const openPresetModal = (preset) => {
+    selectedPreset.value = preset
+    showPresetModal.value = true
+}
+
+const applyPreset = async (preset) => {
+    applyingPreset.value = true
+    const results = []
+
+    for (const presetSvc of preset.services) {
+        const service = allServices.value.find(
+            (s) =>
+                s.name === presetSvc.name ||
+                s.name.toLowerCase() === presetSvc.name.toLowerCase(),
+        )
+        if (!service || service.startupType === 'Disabled') continue
+
+        const previousStatus = service.status
+        const previousStartupType = service.startupType
+
+        try {
+            const data = await disableService(service.name)
+            addToHistory(
+                {
+                    ...service,
+                    status: data.status,
+                    startupType: data.startupType,
+                },
+                'Preset Applied',
+                previousStatus,
+                previousStartupType,
+            )
+            Object.assign(service, data)
+            results.push({ name: service.name, success: true })
+        } catch (err) {
+            console.error(`Failed to disable ${service.name}:`, err)
+            results.push({ name: service.name, success: false })
+        }
+    }
+
+    filterServices()
+    applyingPreset.value = false
+    showPresetModal.value = false
+
+    console.log(`Preset "${preset.name}" applied:`, results)
 }
 </script>
 
