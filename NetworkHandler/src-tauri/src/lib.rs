@@ -21,6 +21,17 @@ static WINDRIVER_SYS: &[u8] = include_bytes!("../drivers/WinDivert64.sys");
 // Helpers
 // ---------------------------------------------------------------------------
 
+/// Look up the cached exe path for `pid`, falling back to a descriptive string.
+fn exe_path_for_pid_cached(pid: u32, state: &AppState) -> String {
+    state
+        .pid_to_exe
+        .lock()
+        .unwrap()
+        .get(&pid)
+        .cloned()
+        .unwrap_or_else(|| format!("PID {pid}"))
+}
+
 /// Persist the full application state to disk (called after blocking changes).
 fn persist_app_data(state: &Arc<AppState>) -> Result<(), String> {
     let global_hourly: Vec<(u64, u64)> =
@@ -192,11 +203,7 @@ async fn set_process_limit(
 
 #[tauri::command]
 async fn block_process(pid: u32, state: State<'_, Arc<AppState>>) -> Result<(), String> {
-    // Resolve exe path for this PID
-    let exe_path = {
-        let p2e = state.pid_to_exe.lock().unwrap();
-        p2e.get(&pid).cloned().unwrap_or_else(|| format!("PID {pid}"))
-    };
+    let exe_path = exe_path_for_pid_cached(pid, &state);
 
     state.blocked_exes.lock().unwrap().insert(exe_path.clone());
 
@@ -220,11 +227,7 @@ async fn block_process(pid: u32, state: State<'_, Arc<AppState>>) -> Result<(), 
 
 #[tauri::command]
 async fn unblock_process(pid: u32, state: State<'_, Arc<AppState>>) -> Result<(), String> {
-    // Resolve exe path for this PID
-    let exe_path = {
-        let p2e = state.pid_to_exe.lock().unwrap();
-        p2e.get(&pid).cloned().unwrap_or_else(|| format!("PID {pid}"))
-    };
+    let exe_path = exe_path_for_pid_cached(pid, &state);
 
     state.blocked_exes.lock().unwrap().remove(&exe_path);
 
