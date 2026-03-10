@@ -12,7 +12,8 @@ use ai::fetch_service_info_from_ai;
 use models::{AppState, ServiceInfo, ServicesCache, WindowsService};
 use windows_services::{
     disable_windows_service, get_default_service_info, get_windows_services, load_services_info,
-    save_services_info,
+    restart_windows_service, save_services_info, set_windows_service_startup_type,
+    start_windows_service, stop_windows_service,
 };
 
 #[tauri::command]
@@ -106,6 +107,88 @@ async fn disable_service(
     }
 }
 
+#[tauri::command]
+async fn start_service(
+    service_name: String,
+    state: State<'_, AppState>,
+) -> Result<WindowsService, String> {
+    let service_name_clone = service_name.clone();
+    match tokio::task::spawn_blocking(move || start_windows_service(&service_name_clone)).await {
+        Ok(result) => match result {
+            Ok(updated_service) => {
+                update_cache_service(&state, &service_name, &updated_service);
+                Ok(updated_service)
+            }
+            Err(e) => Err(format!("Failed to start service: {}", e)),
+        },
+        Err(e) => Err(format!("Task panicked: {:?}", e)),
+    }
+}
+
+#[tauri::command]
+async fn stop_service(
+    service_name: String,
+    state: State<'_, AppState>,
+) -> Result<WindowsService, String> {
+    let service_name_clone = service_name.clone();
+    match tokio::task::spawn_blocking(move || stop_windows_service(&service_name_clone)).await {
+        Ok(result) => match result {
+            Ok(updated_service) => {
+                update_cache_service(&state, &service_name, &updated_service);
+                Ok(updated_service)
+            }
+            Err(e) => Err(format!("Failed to stop service: {}", e)),
+        },
+        Err(e) => Err(format!("Task panicked: {:?}", e)),
+    }
+}
+
+#[tauri::command]
+async fn restart_service(
+    service_name: String,
+    state: State<'_, AppState>,
+) -> Result<WindowsService, String> {
+    let service_name_clone = service_name.clone();
+    match tokio::task::spawn_blocking(move || restart_windows_service(&service_name_clone)).await {
+        Ok(result) => match result {
+            Ok(updated_service) => {
+                update_cache_service(&state, &service_name, &updated_service);
+                Ok(updated_service)
+            }
+            Err(e) => Err(format!("Failed to restart service: {}", e)),
+        },
+        Err(e) => Err(format!("Task panicked: {:?}", e)),
+    }
+}
+
+#[tauri::command]
+async fn set_startup_type(
+    service_name: String,
+    startup_type: String,
+    state: State<'_, AppState>,
+) -> Result<WindowsService, String> {
+    let sn = service_name.clone();
+    let st = startup_type.clone();
+    match tokio::task::spawn_blocking(move || set_windows_service_startup_type(&sn, &st)).await {
+        Ok(result) => match result {
+            Ok(updated_service) => {
+                update_cache_service(&state, &service_name, &updated_service);
+                Ok(updated_service)
+            }
+            Err(e) => Err(format!("Failed to set startup type: {}", e)),
+        },
+        Err(e) => Err(format!("Task panicked: {:?}", e)),
+    }
+}
+
+fn update_cache_service(state: &AppState, service_name: &str, updated: &WindowsService) {
+    let mut cache = state.services_cache.lock().unwrap();
+    if let Some(service) = cache.data.iter_mut().find(|s| s.name == service_name) {
+        service.status = updated.status.clone();
+        service.startup_type = updated.startup_type.clone();
+    }
+}
+
 async fn refresh_services_cache(
     services_info: &Mutex<HashMap<String, ServiceInfo>>,
 ) -> Result<Vec<WindowsService>, String> {
@@ -171,7 +254,11 @@ pub fn run() {
             get_services,
             refresh_services,
             reload_service_info,
-            disable_service
+            disable_service,
+            start_service,
+            stop_service,
+            restart_service,
+            set_startup_type,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

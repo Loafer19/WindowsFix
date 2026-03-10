@@ -1,8 +1,8 @@
 <template>
     <div class="mb-4">
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div class="bg-base-200 rounded-lg p-4">
-                <div class="capitalize font-medium">Disabled</div>
+            <div class="bg-base-200 rounded-box p-4">
+                <div class="capitalize font-medium">Changes</div>
                 <div class="text-2xl text-neutral">{{ history.length }}</div>
                 <div class="text-base-content/70">{{ ((history.length / totalServices) * 100).toFixed(1) }}% of total</div>
                 <progress class="progress progress-neutral h-2 mt-2" :value="((history.length / totalServices) * 100)" max="100"></progress>
@@ -11,7 +11,7 @@
     </div>
 
     <div class="flex items-center justify-between mb-4">
-        <h4 class="text-lg font-semibold text-base-content">Disabled Services</h4>
+        <h4 class="text-lg font-semibold text-base-content">Change History</h4>
         <Button v-if="history.length > 0" class="btn btn-neutral btn-sm" @clicked="clearHistory">
             <Icon name="filterOff" />
             Clear History
@@ -20,7 +20,7 @@
 
     <div v-if="history.length === 0" class="text-center py-8">
         <h3 class="mt-2 text-lg font-bold text-base-content">No history yet</h3>
-        <p class="mt-1 text-base-content/70">Services you disable will appear here :)</p>
+        <p class="mt-1 text-base-content/70">Service changes will appear here :)</p>
     </div>
 
     <div v-else class="overflow-x-auto">
@@ -28,15 +28,61 @@
             <thead>
                 <tr>
                     <th>Name</th>
-                    <th>Display Name</th>
-                    <th>Disabled At</th>
+                    <th>Action</th>
+                    <th>Status</th>
+                    <th>Startup Type</th>
+                    <th>Changed At</th>
                 </tr>
             </thead>
             <tbody>
                 <tr v-for="(entry, index) in history" :key="index">
-                    <td class="font-medium text-base-content">{{ entry.name }}</td>
-                    <td class="text-base-content/70">{{ entry.displayName }}</td>
-                    <td class="text-base-content/70">{{ formatDate(entry.disabledAt) }}</td>
+                    <td>
+                        <div class="font-medium text-base-content">{{ entry.name }}</div>
+                        <div class="text-xs text-base-content/50">{{ entry.displayName }}</div>
+                    </td>
+                    <td>
+                        <div :class="`badge badge-${getActionColor(entry.action)}`">
+                            {{ entry.action }}
+                        </div>
+                    </td>
+                    <td>
+                        <div v-if="entry.previousStatus && entry.newStatus && entry.previousStatus !== entry.newStatus"
+                            class="flex items-center gap-1 text-sm">
+                            <span :class="`badge badge-sm badge-${getStatusColor(entry.previousStatus)}`">
+                                {{ entry.previousStatus }}
+                            </span>
+                            <span class="text-base-content/50">→</span>
+                            <span :class="`badge badge-sm badge-${getStatusColor(entry.newStatus)}`">
+                                {{ entry.newStatus }}
+                            </span>
+                        </div>
+                        <div v-else-if="entry.newStatus">
+                            <span :class="`badge badge-sm badge-${getStatusColor(entry.newStatus)}`">
+                                {{ entry.newStatus }}
+                            </span>
+                        </div>
+                        <span v-else class="text-base-content/40 text-xs">—</span>
+                    </td>
+                    <td>
+                        <div v-if="entry.previousStartupType && entry.newStartupType && entry.previousStartupType !== entry.newStartupType"
+                            class="flex items-center gap-1 text-sm">
+                            <span :class="`badge badge-sm badge-${getStartupTypeColor(entry.previousStartupType)}`">
+                                {{ entry.previousStartupType }}
+                            </span>
+                            <span class="text-base-content/50">→</span>
+                            <span :class="`badge badge-sm badge-${getStartupTypeColor(entry.newStartupType)}`">
+                                {{ entry.newStartupType }}
+                            </span>
+                        </div>
+                        <div v-else-if="entry.newStartupType">
+                            <span :class="`badge badge-sm badge-${getStartupTypeColor(entry.newStartupType)}`">
+                                {{ entry.newStartupType }}
+                            </span>
+                        </div>
+                        <span v-else class="text-base-content/40 text-xs">—</span>
+                    </td>
+                    <!-- entry.disabledAt: backward-compat with history entries from older schema -->
+                    <td class="text-base-content/70 text-sm">{{ formatDate(entry.changedAt || entry.disabledAt) }}</td>
                 </tr>
             </tbody>
         </table>
@@ -44,6 +90,7 @@
 </template>
 
 <script setup>
+import { getStartupTypeColor, getStatusColor } from '../../services/helpers.js'
 import Button from '../Button.vue'
 import Icon from '../Icon.vue'
 
@@ -64,7 +111,20 @@ const clearHistory = () => {
     emit('clear-history')
 }
 
+const getActionColor = (action) => {
+    const colors = {
+        Disabled: 'neutral',
+        Started: 'success',
+        Stopped: 'warning',
+        Restarted: 'info',
+        'Startup Type Changed': 'secondary',
+        'Preset Applied': 'primary',
+    }
+    return colors[action] || 'neutral'
+}
+
 const formatDate = (isoString) => {
+    if (!isoString) return '—'
     return new Date(isoString).toLocaleString('en-GB', { hour12: false })
 }
 </script>

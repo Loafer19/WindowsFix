@@ -24,4 +24,29 @@ async function disableService(serviceName) {
     }
 }
 
-export { loadServices, refreshServices, reloadServiceInfo, disableService }
+async function startService(serviceName) {
+    return await invoke('start_service', { serviceName })
+}
+
+async function stopService(serviceName) {
+    return await invoke('stop_service', { serviceName })
+}
+
+async function restartService(serviceName) {
+    return await invoke('restart_service', { serviceName })
+}
+
+async function setStartupType(serviceName, startupType) {
+    return await invoke('set_startup_type', { serviceName, startupType })
+}
+
+export {
+    loadServices,
+    refreshServices,
+    reloadServiceInfo,
+    disableService,
+    startService,
+    stopService,
+    restartService,
+    setStartupType,
+}
