@@ -44,13 +44,7 @@ async function killProcess(pid) {
     }
 }
 
-async function freeProcessPorts(pid) {
-    try {
-        return await invoke('free_process_ports', { pid })
-    } catch (e) {
-        return { error: true, message: `Failed to free process ports: ${e}` }
-    }
-}
+
 
 async function startCapture() {
     return await invoke('start_capture')
@@ -104,7 +98,6 @@ export {
     blockProcess,
     unblockProcess,
     killProcess,
-    freeProcessPorts,
     startCapture,
     stopCapture,
     getProcessHistory,

@@ -5,20 +5,14 @@
         <div class="card bg-base-200 rounded-lg">
             <div class="card-body">
                 <h2 class="card-title gap-2">
-                    <Icon name="speedometer" class="w-6 h-6 text-warning" />
+                    <Icon name="broadcast" class="w-6 h-6 text-warning" />
                     Global Speed Limit
                 </h2>
                 <p class="text-sm text-base-content/60 mb-4">
                     Set the overall network speed limit for all traffic.
                 </p>
-                <input
-                    type="range"
-                    class="range range-warning w-full"
-                    min="0"
-                    :max="LIMIT_PRESETS.length - 1"
-                    :value="limitIndex"
-                    @input="onLimitChange"
-                />
+                <input type="range" class="range range-warning w-full" min="0" :max="LIMIT_PRESETS.length - 1"
+                    :value="limitIndex" @input="onLimitChange" />
                 <div class="flex justify-between text-xs text-base-content/50 mt-1">
                     <span v-for="preset in LIMIT_PRESETS" :key="preset.value">{{ preset.label }}</span>
                 </div>
@@ -29,7 +23,7 @@
         <div class="card bg-base-200 rounded-lg">
             <div class="card-body">
                 <h2 class="card-title gap-2">
-                    <Icon name="bell" class="w-6 h-6 text-warning" />
+                    <Icon name="alarmWarning" class="w-6 h-6 text-info" />
                     Notifications
                 </h2>
                 <p class="text-sm text-base-content/60 mb-4">
@@ -39,12 +33,8 @@
                 <!-- New process alert -->
                 <div class="form-control">
                     <label class="label cursor-pointer justify-start gap-4">
-                        <input
-                            v-model="notif.newProcessAlert"
-                            type="checkbox"
-                            class="toggle toggle-warning"
-                            @change="saveNotif"
-                        />
+                        <input v-model="notif.newProcessAlert" type="checkbox" class="toggle toggle-info"
+                            @change="saveNotif" />
                         <span class="label-text">
                             <span class="font-medium">New process alert</span>
                             <br />
@@ -58,35 +48,25 @@
                 <div class="divider my-2"></div>
 
                 <!-- Download threshold -->
-                <div class="flex items-center gap-4 flex-wrap">
-                    <Icon name="arrowDown" class="w-4 h-4 text-info shrink-0" />
+                <div class="flex items-center gap-2 flex-wrap">
+                    <Icon name="arrowDownCircle" class="w-5 h-5 text-success shrink-0" />
                     <span class="text-sm font-medium w-40">Download threshold</span>
                     <div class="flex items-center gap-2">
-                        <input
-                            v-model.number="notif.downloadThresholdGb"
-                            type="number"
-                            class="input input-bordered input-sm w-24 font-mono"
-                            min="0"
-                            step="0.5"
-                            @change="saveNotif"
-                        />
+                        <input v-model.number="notif.downloadThresholdGb" type="number"
+                            class="input input-bordered input-sm w-24 font-mono" min="0" step="0.5"
+                            @change="saveNotif" />
                         <span class="text-xs text-base-content/50">GB / 24h (0 = disabled)</span>
                     </div>
                 </div>
 
                 <!-- Upload threshold -->
-                <div class="flex items-center gap-4 flex-wrap mt-2">
-                    <Icon name="arrowUp" class="w-4 h-4 text-success shrink-0" />
+                <div class="flex items-center gap-2 flex-wrap mt-2">
+                    <Icon name="arrowUpCircle" class="w-5 h-5 text-info shrink-0" />
                     <span class="text-sm font-medium w-40">Upload threshold</span>
                     <div class="flex items-center gap-2">
-                        <input
-                            v-model.number="notif.uploadThresholdGb"
-                            type="number"
-                            class="input input-bordered input-sm w-24 font-mono"
-                            min="0"
-                            step="0.5"
-                            @change="saveNotif"
-                        />
+                        <input v-model.number="notif.uploadThresholdGb" type="number"
+                            class="input input-bordered input-sm w-24 font-mono" min="0" step="0.5"
+                            @change="saveNotif" />
                         <span class="text-xs text-base-content/50">GB / 24h (0 = disabled)</span>
                     </div>
                 </div>
@@ -107,13 +87,8 @@
                 <!-- Start with Windows -->
                 <div class="form-control">
                     <label class="label cursor-pointer justify-start gap-4">
-                        <input
-                            v-model="appSettings.startWithWindows"
-                            type="checkbox"
-                            class="toggle toggle-primary"
-                            :disabled="savingSettings"
-                            @change="saveAppSettings"
-                        />
+                        <input v-model="appSettings.startWithWindows" type="checkbox" class="toggle toggle-primary"
+                            :disabled="savingSettings" @change="saveAppSettings" />
                         <span class="label-text">
                             <span class="font-medium flex items-center gap-2">
                                 <Icon name="windows" class="w-4 h-4" />
@@ -133,16 +108,11 @@
                 <!-- Minimize to tray -->
                 <div class="form-control">
                     <label class="label cursor-pointer justify-start gap-4">
-                        <input
-                            v-model="appSettings.minimizeToTray"
-                            type="checkbox"
-                            class="toggle toggle-primary"
-                            :disabled="savingSettings"
-                            @change="saveAppSettings"
-                        />
+                        <input v-model="appSettings.minimizeToTray" type="checkbox" class="toggle toggle-primary"
+                            :disabled="savingSettings" @change="saveAppSettings" />
                         <span class="label-text">
                             <span class="font-medium flex items-center gap-2">
-                                <Icon name="tray" class="w-4 h-4" />
+                                <Icon name="hardDrive2" class="w-4 h-4" />
                                 Minimize to system tray on close
                             </span>
                             <br />
@@ -164,7 +134,7 @@
         <div class="card bg-base-200 rounded-lg">
             <div class="card-body">
                 <h2 class="card-title gap-2">
-                    <Icon name="settings" class="w-6 h-6 text-info" />
+                    <Icon name="puzzle" class="w-6 h-6 text-warning" />
                     WinDivert
                 </h2>
                 <p class="text-sm text-base-content/60 mb-4">
@@ -174,7 +144,7 @@
                 <!-- Status indicators -->
                 <div class="flex items-center gap-4 flex-wrap">
                     <div class="flex items-center gap-2">
-                        <Icon name="configs" class="w-4 h-4 text-neutral" />
+                        <Icon name="settings" class="w-4 h-4 text-neutral" />
                         <span class="text-sm">Library:</span>
                         <span :class="windivertStatus.libraryExists ? 'text-success' : 'text-error'">
                             {{ windivertStatus.libraryExists ? 'Installed' : 'Missing' }}
@@ -183,29 +153,30 @@
                     <div class="flex items-center gap-2">
                         <Icon name="settings" class="w-4 h-4 text-neutral" />
                         <span class="text-sm">Service:</span>
-                        <span :class="windivertStatus.serviceExists ? (windivertStatus.serviceRunning ? 'text-success' : 'text-warning') : 'text-error'">
-                            {{ windivertStatus.serviceExists ? (windivertStatus.serviceRunning ? 'Running' : 'Stopped') : 'Not Created' }}
+                        <span
+                            :class="windivertStatus.serviceExists ? (windivertStatus.serviceRunning ? 'text-success' : 'text-warning') : 'text-error'">
+                            {{ windivertStatus.serviceExists ? (windivertStatus.serviceRunning ? 'Running' : 'Stopped')
+                                : 'Not Created' }}
                         </span>
                     </div>
                 </div>
 
                 <!-- Action buttons -->
-                <div class="mt-4 flex gap-2">
-                    <button
-                        v-if="!windivertStatus.libraryExists || !windivertStatus.serviceExists"
-                        class="btn btn-primary btn-sm"
-                        :disabled="installingWindivert"
-                        @click="installWindivertHandler"
-                    >
+                <div class="mt-4 flex gap-2 flex-wrap">
+                    <button v-if="!windivertStatus.libraryExists || !windivertStatus.serviceExists"
+                        class="btn btn-primary btn-sm" :disabled="installingWindivert" @click="installWindivertHandler">
                         <span v-if="installingWindivert" class="loading loading-spinner loading-sm mr-2"></span>
                         Install WinDivert
                     </button>
+                    <button v-if="windivertStatus.libraryExists" class="btn btn-secondary btn-sm"
+                        :disabled="installingWindivert" @click="installWindivertHandler">
+                        <span v-if="installingWindivert" class="loading loading-spinner loading-sm mr-2"></span>
+                        Reinstall Library
+                    </button>
                     <button
                         v-if="windivertStatus.libraryExists && windivertStatus.serviceExists && !windivertStatus.serviceRunning"
-                        class="btn btn-warning btn-sm"
-                        :disabled="installingWindivert"
-                        @click="startWindivertServiceHandler"
-                    >
+                        class="btn btn-warning btn-sm" :disabled="installingWindivert"
+                        @click="startWindivertServiceHandler">
                         <span v-if="installingWindivert" class="loading loading-spinner loading-sm mr-2"></span>
                         Start Service
                     </button>
@@ -231,7 +202,7 @@ import Icon from '../Icon.vue'
 
 const emit = defineEmits(['notification'])
 
-// Bandwidth-limit presets: { value: bytes/s (0 = unlimited), label: display string }
+
 const LIMIT_PRESETS = Object.freeze([
     { value: 0, label: 'Unlimited' },
     { value: 131_072, label: '128 KB/s' },
@@ -276,7 +247,6 @@ onMounted(async () => {
         Object.assign(appSettings, s)
         Object.assign(notif, n)
         Object.assign(windivertStatus, w)
-        // Set limitIndex based on current globalLimitBps
         const index = LIMIT_PRESETS.findIndex(p => p.value === appSettings.globalLimitBps)
         if (index >= 0) {
             limitIndex.value = index
@@ -330,7 +300,6 @@ async function installWindivertHandler() {
     try {
         await installWinDivert()
         emit('notification', { type: 'success', message: 'WinDivert installed successfully' })
-        // Refresh status
         const status = await checkWinDivertStatus()
         Object.assign(windivertStatus, status)
     } catch (e) {
@@ -345,7 +314,6 @@ async function startWindivertServiceHandler() {
     try {
         await startWinDivertService()
         emit('notification', { type: 'success', message: 'WinDivert service started successfully' })
-        // Refresh status
         const status = await checkWinDivertStatus()
         Object.assign(windivertStatus, status)
     } catch (e) {

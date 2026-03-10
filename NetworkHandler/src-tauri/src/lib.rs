@@ -5,11 +5,11 @@ mod models;
 mod settings;
 
 use std::collections::VecDeque;
-use std::net::IpAddr;
+
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
-use netstat2::{get_sockets_info, AddressFamilyFlags, ProtocolFlags, ProtocolSocketInfo};
+
 use tauri::{Manager, State};
 
 use models::{AppState, HourlyPoint, NetworkStats, NotificationConfig, ProcessInfo, Settings, WinDivertStatus};
@@ -155,60 +155,7 @@ async fn kill_process(pid: u32) -> Result<(), String> {
     }
 }
 
-/// Close all TCP connections owned by `pid` by resetting them via SetTcpEntry.
-/// Returns the number of connections that were successfully closed.
-#[tauri::command]
-async fn free_process_ports(pid: u32) -> Result<u32, String> {
-    use windows::Win32::NetworkManagement::IpHelper::{
-        MIB_TCPROW_LH, MIB_TCPROW_LH_0, MIB_TCP_STATE_DELETE_TCB, SetTcpEntry,
-    };
 
-    // Collect all IPv4 TCP sockets belonging to this PID via netstat2
-    let sockets =
-        get_sockets_info(AddressFamilyFlags::IPV4, ProtocolFlags::TCP)
-            .map_err(|e| format!("get_sockets_info failed: {e}"))?;
-
-    let mut closed = 0u32;
-
-    for socket in &sockets {
-        if !socket.associated_pids.contains(&pid) {
-            continue;
-        }
-        let ProtocolSocketInfo::Tcp(tcp) = &socket.protocol_socket_info else {
-            continue;
-        };
-
-        let (local_v4, remote_v4) = match (tcp.local_addr, tcp.remote_addr) {
-            (IpAddr::V4(l), IpAddr::V4(r)) => (l, r),
-            _ => continue,
-        };
-
-        // Windows MIB_TCPROW ports are stored as network-byte-order DWORDs.
-        // htons(port) converts host-byte-order u16 → network-byte-order u16,
-        // then we zero-extend to u32.
-        let local_addr = u32::from_be_bytes(local_v4.octets());
-        let remote_addr = u32::from_be_bytes(remote_v4.octets());
-        let local_port = tcp.local_port.to_be() as u32;
-        let remote_port = tcp.remote_port.to_be() as u32;
-
-        unsafe {
-            let mut row = MIB_TCPROW_LH {
-                Anonymous: MIB_TCPROW_LH_0 {
-                    dwState: MIB_TCP_STATE_DELETE_TCB.0 as u32,
-                },
-                dwLocalAddr: local_addr,
-                dwLocalPort: local_port,
-                dwRemoteAddr: remote_addr,
-                dwRemotePort: remote_port,
-            };
-            if SetTcpEntry(&mut row) == 0 {
-                closed += 1;
-            }
-        }
-    }
-
-    Ok(closed)
-}
 
 // ---------------------------------------------------------------------------
 // 24-hour history & settings commands
@@ -478,7 +425,6 @@ pub fn run() {
             block_process,
             unblock_process,
             kill_process,
-            free_process_ports,
             get_process_history,
             get_24h_totals,
             get_settings,

@@ -3,34 +3,37 @@
     <div class="modal modal-open" @click.self="emit('close')">
         <div class="modal-box max-w-2xl w-full">
             <!-- Header -->
-            <div class="flex items-start justify-between mb-4">
+            <div class="flex items-start justify-between mb-2">
                 <div>
                     <h3 class="font-bold text-xl">{{ proc.name }}</h3>
-                    <span class="badge badge-ghost font-mono text-xs mt-1">PID {{ proc.pid }}</span>
-                    <span v-if="proc.blocked" class="badge badge-error ml-2 text-xs">Blocked</span>
                 </div>
                 <Button class="btn btn-ghost btn-sm btn-square" @clicked="emit('close')">
                     <Icon name="close" />
                 </Button>
             </div>
 
+            <div class="flex items-center gap-3 mb-3">
+                <span class="badge badge-ghost font-mono text-xs">PID {{ proc.pid }}</span>
+                <span v-if="proc.blocked" class="badge badge-error text-xs">Blocked</span>
+            </div>
+
             <!-- Live stats row -->
             <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
                 <div class="bg-base-200 rounded-lg p-3 text-center">
                     <div class="text-xs text-base-content/60 mb-1">Download</div>
-                    <div class="font-bold text-info font-mono">{{ formatSpeed(proc.downloadBps) }}</div>
+                    <div class="font-bold text-primary font-mono">{{ formatSpeed(proc.downloadBps) }}</div>
                 </div>
                 <div class="bg-base-200 rounded-lg p-3 text-center">
                     <div class="text-xs text-base-content/60 mb-1">Upload</div>
-                    <div class="font-bold text-success font-mono">{{ formatSpeed(proc.uploadBps) }}</div>
+                    <div class="font-bold text-info font-mono">{{ formatSpeed(proc.uploadBps) }}</div>
                 </div>
                 <div class="bg-base-200 rounded-lg p-3 text-center">
                     <div class="text-xs text-base-content/60 mb-1">Total DL</div>
-                    <div class="font-bold font-mono text-sm">{{ formatBytes(proc.totalDownloadBytes) }}</div>
+                    <div class="font-bold font-mono text-sm text-primary">{{ formatBytes(proc.totalDownloadBytes) }}</div>
                 </div>
                 <div class="bg-base-200 rounded-lg p-3 text-center">
                     <div class="text-xs text-base-content/60 mb-1">Total UL</div>
-                    <div class="font-bold font-mono text-sm">{{ formatBytes(proc.totalUploadBytes) }}</div>
+                    <div class="font-bold font-mono text-sm text-info">{{ formatBytes(proc.totalUploadBytes) }}</div>
                 </div>
             </div>
 
@@ -78,10 +81,10 @@ import {
 } from 'chart.js'
 import { computed, onMounted, ref } from 'vue'
 import { Bar } from 'vue-chartjs'
-import { formatBytes, formatSpeed } from '../composables/useNetwork.js'
-import { getProcessHistory } from '../services/api.js'
-import Button from './Button.vue'
-import Icon from './Icon.vue'
+import { formatBytes, formatSpeed } from '../../composables/useNetwork.js'
+import { getProcessHistory } from '../../services/api.js'
+import Button from '../Button.vue'
+import Icon from '../Icon.vue'
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend)
 
@@ -101,7 +104,7 @@ onMounted(async () => {
     }
 })
 
-// Build hour labels: "-23h", "-22h" … "-1h", "now"
+
 const hourLabels = computed(() => {
     const n = history.value.length
     return Array.from({ length: n }, (_, i) => {
@@ -119,16 +122,16 @@ const chartData = computed(() => ({
         {
             label: 'Download',
             data: history.value.map((p) => p.downloadBytes),
-            backgroundColor: 'oklch(74% 0.16 232.661 / 0.7)',
-            borderColor: 'oklch(74% 0.16 232.661)',
+            backgroundColor: 'oklch(71% 0.203 305.504 / 0.7)',
+            borderColor: 'oklch(71% 0.203 305.504)',
             borderWidth: 1,
             borderRadius: 3,
         },
         {
             label: 'Upload',
             data: history.value.map((p) => p.uploadBytes),
-            backgroundColor: 'oklch(76% 0.177 163.223 / 0.7)',
-            borderColor: 'oklch(76% 0.177 163.223)',
+            backgroundColor: 'oklch(74% 0.16 232.661 / 0.7)',
+            borderColor: 'oklch(74% 0.16 232.661)',
             borderWidth: 1,
             borderRadius: 3,
         },

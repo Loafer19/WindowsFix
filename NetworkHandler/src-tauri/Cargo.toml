@@ -1,6 +1,6 @@
 [package]
 name = "net-sentry"
-version = "0.1.0"
+version = "0.2.0"
 description = "NetSentry - High-Performance Network Controller"
 authors = ["Popelyshyn Ruslan"]
 edition = "2021"
@@ -20,7 +20,6 @@ tokio = { version = "1", features = ["full"] }
 windivert = { version = "0.6", features = ["vendored"] }
 governor = "0.10"
 netstat2 = "0.11"
-reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
 windows = { version = "0.62", features = [
     "Win32_Foundation",
     "Win32_System_Threading",

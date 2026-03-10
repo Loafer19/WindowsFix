@@ -1,8 +1,6 @@
 # Windows Fix
 
-![logo](./SM/src-tauri/icons/logo.png)
-
-A collection of tools and scripts to fix and enhance Windows experience :)
+Collection of tools for enhancing the Windows experience :)
 
 ## Services Manager (SM)
 
@@ -10,8 +8,54 @@ A Tauri + Vue3 application to manage Windows Services
 
 With AI integration to help you understand what each service does and if safe to disable it
 
-![web](./.github/screenshots/sm/home.jpg)
-![web](./.github/screenshots/sm/info.jpg)
+| Services List | Service Details |
+|-------|-------|
+| ![web](./.github/screenshots/sm/home.jpg) | ![web](./.github/screenshots/sm/info.jpg) |
+
+## Network Handler (NetSentry)
+
+A Tauri + Vue3 application for real-time network monitoring and traffic shaping
+
+### Features
+
+- Real-time bandwidth monitoring and visualization
+- Per-process traffic analysis and throttling
+- Global speed limits and process-specific limits
+- 24-hour usage history and statistics
+- Process blocking and termination
+- Configurable notifications for traffic thresholds
+- Minimize to system tray functionality
+- Dark theme with responsive design
+
+| dashboard | processes |
+|-------|-------|
+| ![web](./.github/screenshots/ns/dashboard.jpg) | ![web](./.github/screenshots/ns/processes.jpg) |
+
+### Dashboard
+
+- Live download/upload speed tiles
+- 24-hour total data consumption
+- Interactive bandwidth chart
+
+### Processes Tab
+
+- Process list with sortable columns
+- Detailed process information with PID
+- Real-time and total bandwidth per process
+- Throttling controls (KB/s limits)
+- Block/unblock traffic
+- Terminate processes
+- Process detail modal with hourly history charts
+
+### Configs Tab
+
+- Global speed limit presets
+- Notification settings (new process alerts, data thresholds)
+- Application settings (start with Windows, minimize to tray)
+
+### Running
+
+Requires administrator privileges for network packet capture and traffic shaping.
 
 ## Music Visualizer (MV)
 

@@ -3,40 +3,38 @@
         <!-- Combined stats tiles -->
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
             <div class="bg-base-200 rounded-lg p-4 flex items-center gap-3">
-                <Icon name="arrowDown" class="w-8 h-8 text-info" />
+                <Icon name="arrowDownCircle" class="w-8 h-8 text-primary" />
                 <div>
                     <div class="text-base-content/70 text-sm">24h Download</div>
-                    <div class="text-2xl font-bold text-info">{{ formatBytes(totals.downloadBytes) }}</div>
+                    <div class="text-2xl font-bold text-primary">{{ formatBytes(totals.downloadBytes) }}</div>
                     <div class="text-xs text-base-content/50">completed hours only</div>
                 </div>
             </div>
             <div class="bg-base-200 rounded-lg p-4 flex items-center gap-3">
-                <Icon name="arrowUp" class="w-8 h-8 text-success" />
+                <Icon name="arrowUpCircle" class="w-8 h-8 text-info" />
                 <div>
                     <div class="text-base-content/70 text-sm">24h Upload</div>
-                    <div class="text-2xl font-bold text-success">{{ formatBytes(totals.uploadBytes) }}</div>
+                    <div class="text-2xl font-bold text-info">{{ formatBytes(totals.uploadBytes) }}</div>
                     <div class="text-xs text-base-content/50">completed hours only</div>
                 </div>
             </div>
             <div class="bg-base-200 rounded-lg p-4 flex items-center gap-3">
-                <Icon name="arrowDown" class="w-8 h-8 text-info" />
+                <Icon name="arrowDownCircle" class="w-8 h-8 text-primary" />
                 <div>
                     <div class="text-base-content/70 text-sm">Download</div>
-                    <div class="text-2xl font-bold text-info">{{ formatSpeed(currentDownload) }}</div>
-                    <div class="text-xs text-base-content/50">{{ currentDownloadDb.toFixed(1) }} dBbps</div>
+                    <div class="text-2xl font-bold text-primary">{{ formatSpeed(currentDownload) }}</div>
                 </div>
             </div>
             <div class="bg-base-200 rounded-lg p-4 flex items-center gap-3">
-                <Icon name="arrowUp" class="w-8 h-8 text-success" />
+                <Icon name="arrowUpCircle" class="w-8 h-8 text-info" />
                 <div>
                     <div class="text-base-content/70 text-sm">Upload</div>
-                    <div class="text-2xl font-bold text-success">{{ formatSpeed(currentUpload) }}</div>
-                    <div class="text-xs text-base-content/50">{{ currentUploadDb.toFixed(1) }} dBbps</div>
+                    <div class="text-2xl font-bold text-info">{{ formatSpeed(currentUpload) }}</div>
                 </div>
             </div>
         </div>
 
-        <!-- dB bandwidth chart -->
+        <!-- Bandwidth chart -->
         <div class="bg-base-200 rounded-lg p-4">
             <Line :data="chartData" :options="chartOptions" />
         </div>
@@ -57,7 +55,7 @@ import {
 } from 'chart.js'
 import { computed, ref } from 'vue'
 import { Line } from 'vue-chartjs'
-import { formatBytes, formatSpeed, toDb } from '../../composables/useNetwork.js'
+import { formatBytes, formatSpeed } from '../../composables/useNetwork.js'
 import Icon from '../Icon.vue'
 
 ChartJS.register(
@@ -83,28 +81,25 @@ const props = defineProps({
 
 const currentDownload = computed(() => props.downloadHistory.at(-1) ?? 0)
 const currentUpload = computed(() => props.uploadHistory.at(-1) ?? 0)
-const currentDownloadDb = computed(() => toDb(currentDownload.value))
-const currentUploadDb = computed(() => toDb(currentUpload.value))
 
-// Chart datasets use dB values so the Y-axis shows dBbps
 const chartData = computed(() => ({
     labels: props.labels,
     datasets: [
         {
-            label: 'Download (dBbps)',
-            data: props.downloadHistory.map(toDb),
-            borderColor: 'oklch(74% 0.16 232.661)',
-            backgroundColor: 'oklch(74% 0.16 232.661 / 0.15)',
+            label: 'Download',
+            data: props.downloadHistory,
+            borderColor: 'oklch(71% 0.203 305.504)',
+            backgroundColor: 'oklch(71% 0.203 305.504 / 0.15)',
             borderWidth: 2,
             pointRadius: 0,
             fill: true,
             tension: 0.4,
         },
         {
-            label: 'Upload (dBbps)',
-            data: props.uploadHistory.map(toDb),
-            borderColor: 'oklch(76% 0.177 163.223)',
-            backgroundColor: 'oklch(76% 0.177 163.223 / 0.15)',
+            label: 'Upload',
+            data: props.uploadHistory,
+            borderColor: 'oklch(74% 0.16 232.661)',
+            backgroundColor: 'oklch(74% 0.16 232.661 / 0.15)',
             borderWidth: 2,
             pointRadius: 0,
             fill: true,
@@ -121,20 +116,14 @@ const chartOptions = {
     animation: false,
     interaction: { mode: 'index', intersect: false },
     plugins: {
-        legend: { labels: { color: CHART_TEXT_COLOR } },
-        title: {
-            display: true,
-            text: 'Bandwidth (dBbps  —  0 dB ≈ 1 B/s  ·  30 dB ≈ 1 KB/s  ·  60 dB ≈ 1 MB/s)',
-            color: CHART_TEXT_COLOR,
-            font: { size: 11 },
+        legend: {
+            labels: { color: CHART_TEXT_COLOR },
         },
         tooltip: {
             callbacks: {
                 label: (ctx) => {
-                    const db = ctx.raw ?? 0
-                    // Recover approximate raw speed for tooltip
-                    const bps = db > 0 ? 10 ** (db / 10) : 0
-                    return `${ctx.dataset.label.split(' ')[0]}: ${db.toFixed(1)} dBbps (${formatSpeed(Math.round(bps))})`
+                    const bps = ctx.raw ?? 0
+                    return `${ctx.dataset.label}: ${formatSpeed(bps)}`
                 },
             },
         },
@@ -146,13 +135,11 @@ const chartOptions = {
         },
         y: {
             min: 0,
-            suggestedMax: 70,
             ticks: {
                 color: CHART_TEXT_COLOR,
-                callback: (v) => `${v} dB`,
+                callback: (v) => formatSpeed(v),
             },
             grid: { color: CHART_GRID_COLOR },
-            title: { display: true, text: 'dBbps', color: CHART_TEXT_COLOR },
         },
     },
 }

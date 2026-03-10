@@ -20,7 +20,7 @@
             <div class="fixed top-4 right-4 z-50 flex flex-col gap-2 max-w-sm">
                 <div v-for="n in notifications" :key="n.id"
                     :class="`alert alert-${n.type} shadow-lg py-2 px-4 text-sm flex items-center gap-2`">
-                    <Icon name="bell" class="w-4 h-4 shrink-0" />
+                    <Icon name="alarmWarning" class="w-4 h-4 shrink-0" />
                     <span>{{ n.message }}</span>
                     <Button class="btn btn-ghost btn-xs btn-square ml-auto" @clicked="dismissNotification(n.id)">
                         <Icon name="close" class="w-3 h-3" />
@@ -32,7 +32,7 @@
                 <div class="card-body">
                     <component :is="activeTab" :download-history="downloadHistory" :upload-history="uploadHistory"
                         :labels="labels" :processes="processes" :totals="totals24h" @block-toggle="onBlockToggle"
-                        @throttle="onThrottle" @terminate="onTerminate" @free-ports="onFreePorts"
+                        @throttle="onThrottle" @terminate="onTerminate"
                         @notification="onNotification" />
                 </div>
             </div>
@@ -52,7 +52,6 @@ import ProcessesTab from './components/Tabs/ProcessesTab.vue'
 import { useNetwork } from './composables/useNetwork.js'
 import {
     blockProcess,
-    freeProcessPorts,
     get24hTotals,
     getNetworkStats,
     getNotificationConfig,
@@ -70,19 +69,19 @@ const tabs = ref([
         id: 'dashboard',
         name: 'Dashboard',
         component: markRaw(DashboardTab),
-        icon: 'dashboard',
+        icon: 'dashboard2',
     },
     {
         id: 'processes',
         name: 'Processes',
         component: markRaw(ProcessesTab),
-        icon: 'processes',
+        icon: 'listView',
     },
     {
         id: 'configs',
         name: 'Configs',
         component: markRaw(ConfigsTab),
-        icon: 'configs',
+        icon: 'settings4',
     },
 ])
 
@@ -111,7 +110,7 @@ onMounted(async () => {
     } catch {
         error.value = true
     }
-    pollInterval = setInterval(poll, 500)
+    pollInterval = setInterval(poll, 400)
 
     // Minimize-to-tray: intercept window close if configured
     try {
@@ -154,14 +153,13 @@ async function poll() {
         pushStats(stats.downloadBps, stats.uploadBps)
         totals24h.value = totals
 
-        // Merge server data with local UI state flags (isPending, isTerminating, isFreeing)
+        // Merge server data with local UI state flags (isPending, isTerminating)
         processes.value = procs.map((p) => {
             const existing = processes.value.find((e) => e.pid === p.pid) ?? {}
             return {
                 ...p,
                 isPending: existing.isPending ?? false,
                 isTerminating: existing.isTerminating ?? false,
-                isFreeing: existing.isFreeing ?? false,
             }
         })
 
@@ -279,14 +277,7 @@ async function onTerminate(proc) {
     }
 }
 
-async function onFreePorts(proc) {
-    proc.isFreeing = true
-    try {
-        await freeProcessPorts(proc.pid)
-    } finally {
-        proc.isFreeing = false
-    }
-}
+
 </script>
 
 <style scoped>
