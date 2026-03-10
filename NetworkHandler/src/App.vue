@@ -96,8 +96,8 @@ let nextNotifId = 0
 // Track which threshold notification was already fired this session
 const notifFiredDl = ref(false)
 const notifFiredUl = ref(false)
-// Track seen PIDs for new-process alerts
-const seenPids = new Set()
+// Track seen exe paths for new-process alerts
+const seenExes = new Set()
 let firstPoll = true
 
 const { downloadHistory, uploadHistory, labels, pushStats } = useNetwork()
@@ -155,7 +155,7 @@ async function poll() {
 
         // Merge server data with local UI state flags (isPending, isTerminating)
         processes.value = procs.map((p) => {
-            const existing = processes.value.find((e) => e.pid === p.pid) ?? {}
+            const existing = processes.value.find((e) => e.exePath === p.exePath) ?? {}
             return {
                 ...p,
                 isPending: existing.isPending ?? false,
@@ -174,18 +174,24 @@ async function checkNotifications(procs, totals) {
     try {
         const notifConfig = await getNotificationConfig()
 
+        // If display mode is "disabled", skip all notifications
+        if (notifConfig.displayMode === 'disabled') {
+            if (firstPoll) firstPoll = false
+            return
+        }
+
         // New process alert — seed on first poll, fire on subsequent polls
         if (notifConfig.newProcessAlert) {
             if (firstPoll) {
-                for (const p of procs) seenPids.add(p.pid)
+                for (const p of procs) seenExes.add(p.exePath)
                 firstPoll = false
             } else {
                 for (const p of procs) {
-                    if (!seenPids.has(p.pid)) {
-                        seenPids.add(p.pid)
+                    if (!seenExes.has(p.exePath)) {
+                        seenExes.add(p.exePath)
                         pushNotification({
                             type: 'warning',
-                            message: `New process: ${p.name} (PID ${p.pid})`,
+                            message: `New process: ${p.name}`,
                         })
                     }
                 }
@@ -243,7 +249,7 @@ function onNotification(notification) {
 async function onThrottle({ proc, bps }) {
     try {
         await setProcessLimit(proc.pid, bps)
-        const found = processes.value.find((p) => p.pid === proc.pid)
+        const found = processes.value.find((p) => p.exePath === proc.exePath)
         if (found) found.limitBps = bps
     } catch {
         /* ignore */
@@ -269,7 +275,7 @@ async function onTerminate(proc) {
     proc.isTerminating = true
     try {
         await killProcess(proc.pid)
-        processes.value = processes.value.filter((p) => p.pid !== proc.pid)
+        processes.value = processes.value.filter((p) => p.exePath !== proc.exePath)
     } catch {
         /* ignore — process may already be gone */
     } finally {

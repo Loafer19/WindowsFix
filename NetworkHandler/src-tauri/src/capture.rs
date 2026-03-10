@@ -40,7 +40,8 @@ fn refresh_port_pid_cache() -> PortPidCache {
     cache
 }
 
-fn process_name_for_pid(pid: u32) -> String {
+/// Resolve the full executable path for `pid`.  Returns a fallback string on failure.
+fn exe_path_for_pid(pid: u32) -> String {
     use windows::Win32::Foundation::CloseHandle;
     use windows::Win32::System::Threading::{
         OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_FORMAT,
@@ -62,12 +63,7 @@ fn process_name_for_pid(pid: u32) -> String {
         );
         let _ = CloseHandle(handle);
         if ok.is_ok() {
-            let path = String::from_utf16_lossy(&buf[..size as usize]);
-            return path
-                .split(['\\', '/'])
-                .last()
-                .unwrap_or(&path)
-                .to_string();
+            return String::from_utf16_lossy(&buf[..size as usize]);
         }
     }
     format!("PID {pid}")
@@ -110,8 +106,8 @@ pub fn capture_loop(state: Arc<AppState>) {
 
     // ── 24-hour hourly history accumulators (local to this thread) ──────────
     let mut current_hour = current_unix_hour();
-    // Per-process bytes in the current (partial) hour: pid → (dl, ul)
-    let mut proc_hourly_acc: HashMap<u32, (u64, u64)> = HashMap::new();
+    // Per-exe bytes in the current (partial) hour: exe_path → (dl, ul)
+    let mut proc_hourly_acc: HashMap<String, (u64, u64)> = HashMap::new();
     // Global bytes in the current (partial) hour
     let mut global_hourly_acc: (u64, u64) = (0, 0);
 
@@ -205,46 +201,54 @@ pub fn capture_loop(state: Arc<AppState>) {
             .and_then(|port| pid_cache.get(&port).copied());
 
         if let Some(pid) = owner_pid {
-            // Hard block: drop without re-injecting
+            // Fast PID-level block check (hot path)
             if state.blocked_pids.lock().unwrap().contains(&pid) {
                 continue;
             }
 
-            // Accumulate per-process bytes
-            let mut pb = state.process_bytes.lock().unwrap();
-            let entry = pb.entry(pid).or_insert((0, 0));
-            if is_outbound {
-                entry.1 = entry.1.saturating_add(pkt_len);
-            } else {
-                entry.0 = entry.0.saturating_add(pkt_len);
-            }
-            drop(pb);
+            // Resolve and cache exe path on first sight
+            let resolved_exe = {
+                let mut p2e = state.pid_to_exe.lock().unwrap();
+                p2e.entry(pid).or_insert_with(|| exe_path_for_pid(pid)).clone()
+            };
 
-            // Accumulate total per-process bytes
-            let mut ptb = state.process_total_bytes.lock().unwrap();
-            let total_entry = ptb.entry(pid).or_insert((0, 0));
-            if is_outbound {
-                total_entry.1 = total_entry.1.saturating_add(pkt_len);
-            } else {
-                total_entry.0 = total_entry.0.saturating_add(pkt_len);
-            }
-            drop(ptb);
-
-            // Accumulate into the current partial-hour per-process bucket
-            let acc = proc_hourly_acc.entry(pid).or_insert((0, 0));
-            if is_outbound {
-                acc.1 = acc.1.saturating_add(pkt_len);
-            } else {
-                acc.0 = acc.0.saturating_add(pkt_len);
+            // Auto-block: propagate exe-level block to this newly-seen PID
+            if state.blocked_exes.lock().unwrap().contains(&resolved_exe) {
+                state.blocked_pids.lock().unwrap().insert(pid);
+                continue;
             }
 
-            // Cache process name on first sight
-            state
-                .process_names
-                .lock()
-                .unwrap()
-                .entry(pid)
-                .or_insert_with(|| process_name_for_pid(pid));
+            // Accumulate live per-second bytes (by PID for per-process speed display)
+            {
+                let mut pb = state.process_bytes.lock().unwrap();
+                let entry = pb.entry(pid).or_insert((0, 0));
+                if is_outbound {
+                    entry.1 = entry.1.saturating_add(pkt_len);
+                } else {
+                    entry.0 = entry.0.saturating_add(pkt_len);
+                }
+            }
+
+            // Accumulate cumulative total bytes (keyed by exe path)
+            {
+                let mut ptb = state.process_total_bytes.lock().unwrap();
+                let entry = ptb.entry(resolved_exe.clone()).or_insert((0, 0));
+                if is_outbound {
+                    entry.1 = entry.1.saturating_add(pkt_len);
+                } else {
+                    entry.0 = entry.0.saturating_add(pkt_len);
+                }
+            }
+
+            // Accumulate into the current partial-hour per-exe bucket
+            {
+                let acc = proc_hourly_acc.entry(resolved_exe).or_insert((0, 0));
+                if is_outbound {
+                    acc.1 = acc.1.saturating_add(pkt_len);
+                } else {
+                    acc.0 = acc.0.saturating_add(pkt_len);
+                }
+            }
 
             // Per-process token-bucket: drop if over the per-process limit
             if let Some(lim) = proc_limiters.get(&pid) {
@@ -271,57 +275,72 @@ pub fn capture_loop(state: Arc<AppState>) {
     }
 }
 
-/// Advance the hourly history when one or more hours have elapsed.
-/// Pushes the accumulated bytes for the completed hour(s) into the shared state
-/// and persists the global history to disk.
+/// Advance the hourly history when one or more hours have elapsed and persist all state.
 fn advance_hourly(
     state: &AppState,
     old_hour: u64,
     new_hour: u64,
-    proc_acc: &HashMap<u32, (u64, u64)>,
+    proc_acc: &HashMap<String, (u64, u64)>,
     global_acc: (u64, u64),
 ) {
     let hours_elapsed = (new_hour.saturating_sub(old_hour) as usize).min(HOURLY_BUCKETS);
 
-    let mut ph = state.process_hourly.lock().unwrap();
-    let mut gh = state.global_hourly.lock().unwrap();
+    // Update in-memory deques
+    {
+        let mut ph = state.process_hourly.lock().unwrap();
+        let mut gh = state.global_hourly.lock().unwrap();
 
-    for h in 0..hours_elapsed {
-        let is_last = h == hours_elapsed - 1;
-        // For skipped intermediate hours (app was suspended / no data) push zeros.
-        let (g_dl, g_ul) = if is_last { global_acc } else { (0, 0) };
+        for h in 0..hours_elapsed {
+            let is_last = h == hours_elapsed - 1;
+            // For skipped intermediate hours (app was suspended / no data) push zeros.
+            let (g_dl, g_ul) = if is_last { global_acc } else { (0, 0) };
 
-        gh.push_back((g_dl, g_ul));
-        if gh.len() > HOURLY_BUCKETS {
-            gh.pop_front();
-        }
-
-        if is_last {
-            for (&pid, &acc) in proc_acc {
-                let deque = ph.entry(pid).or_insert_with(VecDeque::new);
-                deque.push_back(acc);
-                if deque.len() > HOURLY_BUCKETS {
-                    deque.pop_front();
-                }
+            gh.push_back((g_dl, g_ul));
+            if gh.len() > HOURLY_BUCKETS {
+                gh.pop_front();
             }
-        } else {
-            // Fill all existing per-process deques with zeros for the skipped hour
-            for deque in ph.values_mut() {
-                deque.push_back((0, 0));
-                if deque.len() > HOURLY_BUCKETS {
-                    deque.pop_front();
+
+            if is_last {
+                for (exe_path, &acc) in proc_acc {
+                    let deque = ph.entry(exe_path.clone()).or_insert_with(VecDeque::new);
+                    deque.push_back(acc);
+                    if deque.len() > HOURLY_BUCKETS {
+                        deque.pop_front();
+                    }
+                }
+            } else {
+                // Fill all existing per-exe deques with zeros for the skipped hour
+                for deque in ph.values_mut() {
+                    deque.push_back((0, 0));
+                    if deque.len() > HOURLY_BUCKETS {
+                        deque.pop_front();
+                    }
                 }
             }
         }
     }
 
-    // Persist the updated global hourly data
+    // Persist all state to disk (acquire each lock separately to avoid holding multiple at once)
+    let global_hourly_snap: Vec<(u64, u64)> =
+        state.global_hourly.lock().unwrap().iter().copied().collect();
+    let process_hourly_snap: HashMap<String, Vec<(u64, u64)>> = state
+        .process_hourly
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(k, v)| (k.clone(), v.iter().copied().collect()))
+        .collect();
+    let process_totals = state.process_total_bytes.lock().unwrap().clone();
+    let blocked_exes: Vec<String> =
+        state.blocked_exes.lock().unwrap().iter().cloned().collect();
+
     let data = db::AppData {
-        global_hourly: gh.iter().copied().collect(),
+        global_hourly: global_hourly_snap,
         saved_at_hour: new_hour,
+        process_totals,
+        blocked_exes,
+        process_hourly: process_hourly_snap,
     };
-    drop(gh);
-    drop(ph);
     if let Err(e) = db::save(&data) {
         eprintln!("Failed to persist hourly data: {e}");
     }

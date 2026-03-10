@@ -27,7 +27,7 @@
                     Notifications
                 </h2>
                 <p class="text-sm text-base-content/60 mb-4">
-                    Configure alert triggers. Alerts appear as toasts in the app.
+                    Configure alert triggers and where they should appear.
                 </p>
 
                 <!-- New process alert -->
@@ -68,6 +68,22 @@
                             class="input input-bordered input-sm w-24 font-mono" min="0" step="0.5"
                             @change="saveNotif" />
                         <span class="text-xs text-base-content/50">GB / 24h (0 = disabled)</span>
+                    </div>
+                </div>
+
+                <div class="divider my-2"></div>
+
+                <!-- Notification display mode -->
+                <div class="flex items-center gap-4 flex-wrap">
+                    <Icon name="alarmWarning" class="w-5 h-5 text-info shrink-0" />
+                    <span class="text-sm font-medium">Display mode</span>
+                    <div class="flex gap-4">
+                        <label v-for="mode in NOTIF_MODES" :key="mode.value"
+                            class="flex items-center gap-1 cursor-pointer">
+                            <input v-model="notif.displayMode" type="radio" :value="mode.value"
+                                class="radio radio-info radio-sm" @change="saveNotif" />
+                            <span class="text-sm">{{ mode.label }}</span>
+                        </label>
                     </div>
                 </div>
             </div>
@@ -119,6 +135,26 @@
                             <span class="text-xs text-base-content/50">
                                 Pressing ✕ hides the window to the tray instead of quitting.
                                 Right-click the tray icon to quit.
+                            </span>
+                        </span>
+                    </label>
+                </div>
+
+                <div class="divider my-2"></div>
+
+                <!-- Start minimized -->
+                <div class="form-control">
+                    <label class="label cursor-pointer justify-start gap-4">
+                        <input v-model="appSettings.startMinimized" type="checkbox" class="toggle toggle-primary"
+                            :disabled="savingSettings" @change="saveAppSettings" />
+                        <span class="label-text">
+                            <span class="font-medium flex items-center gap-2">
+                                <Icon name="hardDrive2" class="w-4 h-4" />
+                                Start minimized
+                            </span>
+                            <br />
+                            <span class="text-xs text-base-content/50">
+                                Hide the main window immediately on launch. Access via tray icon.
                             </span>
                         </span>
                     </label>
@@ -212,15 +248,22 @@ const LIMIT_PRESETS = Object.freeze([
     { value: 10_485_760, label: '10 MB/s' },
 ])
 
+const NOTIF_MODES = Object.freeze([
+    { value: 'app', label: 'App only' },
+    { value: 'disabled', label: 'Disabled' },
+])
+
 const notif = reactive({
     newProcessAlert: false,
     downloadThresholdGb: 5,
     uploadThresholdGb: 5,
+    displayMode: 'app',
 })
 
 const appSettings = reactive({
     startWithWindows: false,
     minimizeToTray: false,
+    startMinimized: false,
     globalLimitBps: 0,
 })
 
