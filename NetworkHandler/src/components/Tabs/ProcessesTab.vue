@@ -1,7 +1,7 @@
 <template>
     <div>
         <div class="flex items-center gap-2 mb-4">
-            <input v-model="searchQuery" type="text" class="input input-bordered flex-1" placeholder="Search by process name or PID..." />
+            <input v-model="searchQuery" type="text" class="input input-bordered flex-1" placeholder="Search by process name, path or PID..." />
             <Button class="btn btn-ghost btn-square" @clicked="searchQuery = ''"><Icon name="filterOff" /></Button>
         </div>
         <div v-if="filtered.length === 0" class="text-center py-12">
@@ -49,7 +49,7 @@
                 <tbody>
                     <tr
                         v-for="proc in sorted"
-                        :key="proc.pid"
+                        :key="proc.exePath"
                         class="cursor-pointer hover"
                         :class="{ 'opacity-50': proc.blocked }"
                         @click.stop="openModal(proc)"
@@ -58,7 +58,8 @@
                         <td>
                             <div class="flex flex-col">
                                 <span class="font-medium" :class="proc.blocked ? 'line-through text-error' : ''">{{ proc.name }}</span>
-                                <span class="text-xs text-base-content/40 font-mono">PID {{ proc.pid }}</span>
+                                <span class="text-xs text-base-content/40 font-mono">{{ proc.pid ? `PID ${proc.pid}` : 'Not running' }}</span>
+                                <span class="text-xs text-base-content/30 font-mono truncate max-w-[180px]" :title="proc.exePath">{{ proc.exePath }}</span>
                             </div>
                         </td>
                         <td><span class="badge badge-primary font-mono">{{ formatSpeed(proc.downloadBps) }}</span></td>
@@ -66,9 +67,10 @@
                         <td><span class="badge badge-primary font-mono">{{ formatBytes(proc.totalDownloadBytes) }}</span></td>
                         <td><span class="badge badge-info font-mono">{{ formatBytes(proc.totalUploadBytes) }}</span></td>
                         <td @click.stop>
-                            <input type="number" class="input input-bordered input-sm w-24 font-mono" min="0" placeholder="no limit"
+                            <input v-if="proc.pid" type="number" class="input input-bordered input-sm w-24 font-mono" min="0" placeholder="no limit"
                                 :value="proc.limitBps ? Math.round(proc.limitBps / 1024) : ''"
                                 @change="onThrottleChange(proc, $event)" @keydown.enter="$event.target.blur()" />
+                            <span v-else class="text-xs text-base-content/30">—</span>
                         </td>
                         <td @click.stop>
                             <div class="flex items-center gap-1">
@@ -78,7 +80,7 @@
                                         <Icon :name="proc.blocked ? 'errorWarning' : 'forbid'" />
                                     </Button>
                                 </div>
-                                <div class="tooltip tooltip-left" data-tip="Terminate process">
+                                <div v-if="proc.pid" class="tooltip tooltip-left" data-tip="Terminate process">
                                     <Button class="btn btn-error btn-sm btn-square" :is-loading="proc.isTerminating"
                                         :disabled="proc.isTerminating || proc.isPending" @clicked="emit('terminate', proc)">
                                         <Icon name="deleteBin2" />
@@ -127,7 +129,7 @@ const filtered = computed(() => {
     const q = searchQuery.value.toLowerCase()
     if (!q) return props.processes
     return props.processes.filter(
-        (p) => p.name.toLowerCase().includes(q) || String(p.pid).includes(q),
+        (p) => p.name.toLowerCase().includes(q) || p.exePath.toLowerCase().includes(q) || String(p.pid).includes(q),
     )
 })
 

@@ -54,8 +54,8 @@ async function stopCapture() {
     return await invoke('stop_capture')
 }
 
-async function getProcessHistory(pid) {
-    return await invoke('get_process_history', { pid })
+async function getProcessHistory(exePath) {
+    return await invoke('get_process_history', { exePath })
 }
 
 async function get24hTotals() {

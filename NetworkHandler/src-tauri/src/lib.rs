@@ -4,7 +4,7 @@ mod history;
 mod models;
 mod settings;
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -16,6 +16,45 @@ use models::{AppState, HourlyPoint, NetworkStats, NotificationConfig, ProcessInf
 
 // Embedded WinDivert driver file
 static WINDRIVER_SYS: &[u8] = include_bytes!("../drivers/WinDivert64.sys");
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/// Look up the cached exe path for `pid`, falling back to a descriptive string.
+fn exe_path_for_pid_cached(pid: u32, state: &AppState) -> String {
+    state
+        .pid_to_exe
+        .lock()
+        .unwrap()
+        .get(&pid)
+        .cloned()
+        .unwrap_or_else(|| format!("PID {pid}"))
+}
+
+/// Persist the full application state to disk (called after blocking changes).
+fn persist_app_data(state: &Arc<AppState>) -> Result<(), String> {
+    let global_hourly: Vec<(u64, u64)> =
+        state.global_hourly.lock().unwrap().iter().copied().collect();
+    let process_hourly: HashMap<String, Vec<(u64, u64)>> = state
+        .process_hourly
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(k, v)| (k.clone(), v.iter().copied().collect()))
+        .collect();
+    let process_totals = state.process_total_bytes.lock().unwrap().clone();
+    let blocked_exes: Vec<String> =
+        state.blocked_exes.lock().unwrap().iter().cloned().collect();
+
+    db::save(&db::AppData {
+        global_hourly,
+        saved_at_hour: history::current_unix_hour(),
+        process_totals,
+        blocked_exes,
+        process_hourly,
+    })
+}
 
 // ---------------------------------------------------------------------------
 // Capture control
@@ -57,32 +96,69 @@ async fn get_network_stats(state: State<'_, Arc<AppState>>) -> Result<NetworkSta
 async fn get_processes(state: State<'_, Arc<AppState>>) -> Result<Vec<ProcessInfo>, String> {
     let pb = state.process_bytes.lock().unwrap().clone();
     let ptb = state.process_total_bytes.lock().unwrap().clone();
-    let pn = state.process_names.lock().unwrap().clone();
-    let blocked = state.blocked_pids.lock().unwrap().clone();
+    let pid_to_exe = state.pid_to_exe.lock().unwrap().clone();
+    let blocked_exes = state.blocked_exes.lock().unwrap().clone();
     let limits = state.process_limits.lock().unwrap().clone();
 
-    // Collect all unique PIDs from current and total
-    let mut all_pids: std::collections::HashSet<u32> = pb.keys().cloned().collect();
-    all_pids.extend(ptb.keys().cloned());
-    all_pids.extend(blocked.iter().cloned());
+    // Aggregate live bytes and pick a representative PID per exe path
+    let mut exe_live: HashMap<String, (u32, u64, u64)> = HashMap::new(); // exe → (pid, dl_bps, ul_bps)
+    for (&pid, &(dl, ul)) in &pb {
+        if let Some(exe) = pid_to_exe.get(&pid) {
+            let entry = exe_live.entry(exe.clone()).or_insert((pid, 0, 0));
+            entry.1 = entry.1.saturating_add(dl);
+            entry.2 = entry.2.saturating_add(ul);
+        }
+    }
+    // Ensure every known exe path is represented even when idle
+    for (&pid, exe) in &pid_to_exe {
+        exe_live.entry(exe.clone()).or_insert((pid, 0, 0));
+    }
 
-    let mut list: Vec<ProcessInfo> = all_pids
+    // Build one ProcessInfo per exe path using persisted totals
+    let mut list: Vec<ProcessInfo> = ptb
         .into_iter()
-        .map(|pid| {
-            let (dl_bps, ul_bps) = pb.get(&pid).copied().unwrap_or((0, 0));
-            let (dl_total, ul_total) = ptb.get(&pid).copied().unwrap_or((0, 0));
+        .map(|(exe_path, (dl_total, ul_total))| {
+            let name = exe_path
+                .split(['\\', '/'])
+                .last()
+                .unwrap_or(&exe_path)
+                .to_string();
+            let (pid, dl_bps, ul_bps) = exe_live.get(&exe_path).copied().unwrap_or((0, 0, 0));
             ProcessInfo {
                 pid,
-                name: pn.get(&pid).cloned().unwrap_or_else(|| format!("PID {pid}")),
+                name,
+                exe_path: exe_path.clone(),
                 download_bps: dl_bps,
                 upload_bps: ul_bps,
                 total_download_bytes: dl_total,
                 total_upload_bytes: ul_total,
-                blocked: blocked.contains(&pid),
+                blocked: blocked_exes.contains(&exe_path),
                 limit_bps: limits.get(&pid).copied().unwrap_or(0),
             }
         })
         .collect();
+
+    // Also include currently active processes not yet in persistent totals
+    for (exe_path, (pid, dl_bps, ul_bps)) in &exe_live {
+        if !list.iter().any(|p| &p.exe_path == exe_path) {
+            let name = exe_path
+                .split(['\\', '/'])
+                .last()
+                .unwrap_or(exe_path)
+                .to_string();
+            list.push(ProcessInfo {
+                pid: *pid,
+                name,
+                exe_path: exe_path.clone(),
+                download_bps: *dl_bps,
+                upload_bps: *ul_bps,
+                total_download_bytes: 0,
+                total_upload_bytes: 0,
+                blocked: blocked_exes.contains(exe_path),
+                limit_bps: limits.get(pid).copied().unwrap_or(0),
+            });
+        }
+    }
 
     // Filter out processes with no historical activity
     list.retain(|p| p.total_download_bytes > 0 || p.total_upload_bytes > 0);
@@ -127,14 +203,50 @@ async fn set_process_limit(
 
 #[tauri::command]
 async fn block_process(pid: u32, state: State<'_, Arc<AppState>>) -> Result<(), String> {
-    state.blocked_pids.lock().unwrap().insert(pid);
-    Ok(())
+    let exe_path = exe_path_for_pid_cached(pid, &state);
+
+    state.blocked_exes.lock().unwrap().insert(exe_path.clone());
+
+    // Propagate block to all currently-known PIDs with the same exe path
+    let matching_pids: Vec<u32> = {
+        let p2e = state.pid_to_exe.lock().unwrap();
+        p2e.iter()
+            .filter(|(_, v)| **v == exe_path)
+            .map(|(k, _)| *k)
+            .collect()
+    };
+    {
+        let mut bpids = state.blocked_pids.lock().unwrap();
+        for p in matching_pids {
+            bpids.insert(p);
+        }
+    }
+
+    persist_app_data(&state)
 }
 
 #[tauri::command]
 async fn unblock_process(pid: u32, state: State<'_, Arc<AppState>>) -> Result<(), String> {
-    state.blocked_pids.lock().unwrap().remove(&pid);
-    Ok(())
+    let exe_path = exe_path_for_pid_cached(pid, &state);
+
+    state.blocked_exes.lock().unwrap().remove(&exe_path);
+
+    // Remove block from all currently-known PIDs with the same exe path
+    let matching_pids: Vec<u32> = {
+        let p2e = state.pid_to_exe.lock().unwrap();
+        p2e.iter()
+            .filter(|(_, v)| **v == exe_path)
+            .map(|(k, _)| *k)
+            .collect()
+    };
+    {
+        let mut bpids = state.blocked_pids.lock().unwrap();
+        for p in matching_pids {
+            bpids.remove(&p);
+        }
+    }
+
+    persist_app_data(&state)
 }
 
 // ---------------------------------------------------------------------------
@@ -163,12 +275,12 @@ async fn kill_process(pid: u32) -> Result<(), String> {
 
 #[tauri::command]
 async fn get_process_history(
-    pid: u32,
+    exe_path: String,
     state: State<'_, Arc<AppState>>,
 ) -> Result<Vec<HourlyPoint>, String> {
     let hourly = state.process_hourly.lock().unwrap();
     let points = hourly
-        .get(&pid)
+        .get(&exe_path)
         .map(|deque| {
             deque
                 .iter()
@@ -373,7 +485,37 @@ pub fn run() {
         }
     }
 
-    let app_state = Arc::new(AppState::new(saved_settings, saved_notif, global_hourly));
+    // Restore per-exe hourly history, padding missed hours with zeros
+    let mut process_hourly: HashMap<String, VecDeque<(u64, u64)>> = saved_data
+        .process_hourly
+        .into_iter()
+        .map(|(k, v)| (k, v.into_iter().collect()))
+        .collect();
+    if saved_data.saved_at_hour > 0 {
+        let offline_hours =
+            (current_hour.saturating_sub(saved_data.saved_at_hour) as usize)
+                .min(history::HOURLY_BUCKETS);
+        for deque in process_hourly.values_mut() {
+            for _ in 0..offline_hours {
+                deque.push_back((0, 0));
+                if deque.len() > history::HOURLY_BUCKETS {
+                    deque.pop_front();
+                }
+            }
+        }
+    }
+
+    // Restore blocked exe paths
+    let blocked_exes: HashSet<String> = saved_data.blocked_exes.into_iter().collect();
+
+    let app_state = Arc::new(AppState::new(
+        saved_settings,
+        saved_notif,
+        global_hourly,
+        saved_data.process_totals,
+        blocked_exes,
+        process_hourly,
+    ));
 
     tauri::Builder::default()
         .manage(app_state)
@@ -413,6 +555,15 @@ pub fn run() {
                     }
                 })
                 .build(app)?;
+
+            // Hide main window on startup if "Start minimized" is configured
+            let state = app.state::<Arc<AppState>>();
+            if state.settings.lock().unwrap().start_minimized {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.hide();
+                }
+            }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

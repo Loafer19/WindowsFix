@@ -13,7 +13,8 @@
             </div>
 
             <div class="flex items-center gap-3 mb-3">
-                <span class="badge badge-ghost font-mono text-xs">PID {{ proc.pid }}</span>
+                <span class="badge badge-ghost font-mono text-xs">{{ proc.pid ? `PID ${proc.pid}` : 'Not running' }}</span>
+                <span class="badge badge-ghost font-mono text-xs truncate max-w-xs" :title="proc.exePath">{{ proc.exePath }}</span>
                 <span v-if="proc.blocked" class="badge badge-error text-xs">Blocked</span>
             </div>
 
@@ -48,7 +49,7 @@
 
             <!-- Throttle / info row -->
             <div class="flex items-center gap-4 flex-wrap">
-                <div class="flex items-center gap-2">
+                <div v-if="proc.pid" class="flex items-center gap-2">
                     <span class="text-sm text-base-content/70">Throttle:</span>
                     <input
                         type="number"
@@ -98,7 +99,7 @@ const history = ref([])
 
 onMounted(async () => {
     try {
-        history.value = await getProcessHistory(props.proc.pid)
+        history.value = await getProcessHistory(props.proc.exePath)
     } catch {
         history.value = []
     }
