@@ -14,7 +14,7 @@ struct Uniforms {
     bass_energy: f32,
     smoothing_factor: f32,
     gain: f32,
-    padding4: f32,
+    beat_intensity: f32,
 };
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
@@ -81,7 +81,9 @@ fn fs_main(@builtin(position) coord: vec4<f32>) -> @location(0) vec4<f32> {
         // Bright top-cap line
         let cap_norm = (bar_h_px - from_bottom) / bar_h_px;
         let cap_glow = exp(-cap_norm * cap_norm * 400.0) * 0.8;
-        let final_col = mixed + vec3<f32>(cap_glow);
+        // Beat flash: boost overall brightness on beat
+        let beat_boost = uniforms.beat_intensity * 0.5;
+        let final_col = mixed + vec3<f32>(cap_glow + beat_boost);
         return vec4<f32>(clamp(final_col, vec3<f32>(0.0), vec3<f32>(1.0)), 1.0);
     }
 
@@ -95,5 +97,7 @@ fn fs_main(@builtin(position) coord: vec4<f32>) -> @location(0) vec4<f32> {
 
     // Background pattern
     let bg = from_bottom / uniforms.resolution.y * 0.04;
-    return vec4<f32>(bg, bg * 0.6, bg * 1.2, 1.0);
+    // Beat flash: subtle background pulse on beat
+    let bg_beat = uniforms.beat_intensity * 0.04;
+    return vec4<f32>(bg + bg_beat, (bg + bg_beat) * 0.6, (bg + bg_beat) * 1.2, 1.0);
 }

@@ -31,6 +31,10 @@ pub struct GpuResources {
     pub bass_energy: f32,
     waveform_history: Vec<f32>,
     history_frame_counter: u32,
+    /// Rolling energy history for beat detection (ring-buffer, newest at index 0).
+    energy_history: Vec<f32>,
+    /// Instantaneous beat intensity that peaks on beat and decays each frame.
+    pub beat_intensity: f32,
 }
 
 impl GpuResources {
@@ -120,6 +124,8 @@ impl GpuResources {
             bass_energy: 0.0,
             waveform_history: vec![0.0f32; WAVEFORM_HISTORY_SIZE * SAMPLE_SIZE],
             history_frame_counter: 0,
+            energy_history: vec![0.0f32; BEAT_HISTORY_SIZE],
+            beat_intensity: 0.0,
         })
     }
 
@@ -138,7 +144,7 @@ impl GpuResources {
             bass_energy: 0.0,
             smoothing_factor: 0.1,
             gain: 1.5,
-            padding4: 0.0,
+            beat_intensity: 0.0,
         };
         device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Uniform Buffer"),
@@ -370,7 +376,7 @@ impl GpuResources {
         }
     }
 
-    pub fn update(&mut self, uniforms: &VisUniforms, audio_data: &[f32]) {
+    pub fn update(&mut self, uniforms: &VisUniforms, audio_data: &[f32], beat_threshold: f32) {
         let time = self.start_time.elapsed().as_secs_f32();
         let smoothing = uniforms.smoothing_factor.clamp(0.01, 0.3);
         let gain = uniforms.gain.clamp(0.5, 5.0);
@@ -399,7 +405,29 @@ impl GpuResources {
             for s in &mut waveform {
                 *s *= gain;
             }
+            // Compute bass energy from the raw waveform RMS for non-spectrum modes.
+            let rms = (waveform.iter().map(|x| x * x).sum::<f32>() / waveform.len().max(1) as f32).sqrt();
+            self.bass_energy = (rms * 5.0).min(1.0);
             data_to_write = waveform;
+        }
+
+        // ── Beat detection ─────────────────────────────────────────────────────
+        // `self.bass_energy` was already computed above (either from FFT or RMS);
+        // push it into the rolling history (newest at index 0).
+        self.energy_history.copy_within(0..BEAT_HISTORY_SIZE - 1, 1);
+        self.energy_history[0] = self.bass_energy;
+
+        let avg_energy = self.energy_history.iter().sum::<f32>() / BEAT_HISTORY_SIZE as f32;
+        if avg_energy > 0.001 && self.bass_energy > beat_threshold * avg_energy {
+            // Beat detected – set peak intensity proportional to the excess energy.
+            let excess = (self.bass_energy / (avg_energy * beat_threshold)).min(2.0);
+            self.beat_intensity = excess.min(1.0);
+        } else {
+            // Decay toward zero so the pulse fades over several frames.
+            self.beat_intensity *= BEAT_DECAY;
+            if self.beat_intensity < 0.01 {
+                self.beat_intensity = 0.0;
+            }
         }
 
         // Maintain waveform history for the waveform_history shader.
@@ -425,6 +453,7 @@ impl GpuResources {
         let mut updated = *uniforms;
         updated.time = time;
         updated.bass_energy = self.bass_energy;
+        updated.beat_intensity = self.beat_intensity;
 
         self.queue.write_buffer(&self.uniform_buffer, 0, bytemuck::cast_slice(&[updated]));
         self.queue.write_buffer(&self.fft_buffer, 0, bytemuck::cast_slice(&data_to_write));

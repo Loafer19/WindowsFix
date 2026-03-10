@@ -10,6 +10,36 @@ pub enum ColorScheme {
     Fire,
 }
 
+/// Controls how aggressively the beat detector fires.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum BeatSensitivity {
+    /// Fires only on strong transients (threshold ×1.8 above rolling mean).
+    Low,
+    /// Balanced default (threshold ×1.5 above rolling mean).
+    Medium,
+    /// Fires on softer transients as well (threshold ×1.3 above rolling mean).
+    High,
+}
+
+impl BeatSensitivity {
+    /// Cycle to the next level: Low → Medium → High → Low.
+    pub fn next(self) -> Self {
+        match self {
+            Self::Low    => Self::Medium,
+            Self::Medium => Self::High,
+            Self::High   => Self::Low,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Low    => "Low",
+            Self::Medium => "Medium",
+            Self::High   => "High",
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct AppSettings {
     pub show_settings: bool,
@@ -23,6 +53,8 @@ pub struct AppSettings {
     pub bass_boost: f32,
     /// Names of visualization plugins that the user has disabled.
     pub disabled_plugins: HashSet<String>,
+    /// Beat detection sensitivity level.
+    pub beat_sensitivity: BeatSensitivity,
 }
 
 impl AppSettings {
@@ -37,6 +69,7 @@ impl AppSettings {
             color_scheme: ColorScheme::Classic,
             bass_boost: 1.0,
             disabled_plugins: HashSet::new(),
+            beat_sensitivity: BeatSensitivity::Medium,
         }
     }
 

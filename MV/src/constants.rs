@@ -42,3 +42,19 @@ pub const WAVEFORM_HISTORY_SIZE: usize = 64;
 
 /// Update the waveform history every N rendered frames (~15 fps of history at 60 fps).
 pub const HISTORY_UPDATE_INTERVAL: u32 = 4;
+
+// ─── Beat Detection ───────────────────────────────────────────────────────────
+
+/// Number of frames kept in the rolling energy history used for beat detection.
+/// At ~60 fps this covers approximately 0.7 seconds.
+pub const BEAT_HISTORY_SIZE: usize = 43;
+
+/// Energy ratio thresholds above the rolling mean that trigger a beat.
+/// Low  = more sensitive (fires on softer transients).
+/// High = less sensitive (only fires on strong transients).
+pub const BEAT_THRESHOLD_LOW: f32 = 1.3;
+pub const BEAT_THRESHOLD_MED: f32 = 1.5;
+pub const BEAT_THRESHOLD_HIGH: f32 = 1.8;
+
+/// How fast `beat_intensity` decays toward 0 each frame (multiplicative).
+pub const BEAT_DECAY: f32 = 0.85;

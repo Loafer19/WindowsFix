@@ -20,7 +20,7 @@ struct Uniforms {
     bass_energy: f32,
     smoothing_factor: f32,
     gain: f32,
-    padding4: f32,
+    beat_intensity: f32,
 };
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
