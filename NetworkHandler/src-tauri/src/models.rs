@@ -66,7 +66,7 @@ pub struct NotificationConfig {
     /// Notify when global 24 h upload exceeds this many GB (0 = disabled).
     #[serde(rename = "uploadThresholdGb", default = "default_5gb")]
     pub upload_threshold_gb: f64,
-    /// Where to show alerts: "app" (in-app toasts) | "disabled".
+    /// Where to show alerts: "app" (in-app toasts) | "native" (Windows system notifications) | "disabled".
     #[serde(rename = "displayMode", default = "default_display_mode")]
     pub display_mode: String,
 }

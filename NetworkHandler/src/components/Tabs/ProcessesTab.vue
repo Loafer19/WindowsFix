@@ -58,8 +58,6 @@
                         <td>
                             <div class="flex flex-col">
                                 <span class="font-medium" :class="proc.blocked ? 'line-through text-error' : ''">{{ proc.name }}</span>
-                                <span class="text-xs text-base-content/40 font-mono">{{ proc.pid ? `PID ${proc.pid}` : 'Not running' }}</span>
-                                <span class="text-xs text-base-content/30 font-mono truncate max-w-[180px]" :title="proc.exePath">{{ proc.exePath }}</span>
                             </div>
                         </td>
                         <td><span class="badge badge-primary font-mono">{{ formatSpeed(proc.downloadBps) }}</span></td>
@@ -70,7 +68,7 @@
                             <input v-if="proc.pid" type="number" class="input input-bordered input-sm w-24 font-mono" min="0" placeholder="no limit"
                                 :value="proc.limitBps ? Math.round(proc.limitBps / 1024) : ''"
                                 @change="onThrottleChange(proc, $event)" @keydown.enter="$event.target.blur()" />
-                            <span v-else class="text-xs text-base-content/30">—</span>
+                            <span v-else class="text-xs text-base-content/30">-</span>
                         </td>
                         <td @click.stop>
                             <div class="flex items-center gap-1">

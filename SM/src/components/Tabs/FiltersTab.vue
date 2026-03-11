@@ -1,7 +1,7 @@
 <template>
     <div class="mb-4">
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div class="bg-base-200 rounded-box p-4">
+            <div class="bg-base-200 rounded-lg p-4">
                 <div class="capitalize font-medium">Showing</div>
                 <div class="text-2xl text-primary">{{ filteredCount }}</div>
                 <div class="text-base-content/70">
@@ -13,7 +13,7 @@
         </div>
     </div>
 
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <div class="form-control">
             <label for="searchFilter" class="label">
                 Search
@@ -65,38 +65,7 @@
         </div>
     </div>
 
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div class="form-control">
-            <label for="sortByFilter" class="label">
-                Sort By
-            </label>
-            <select id="sortByFilter" :value="sortBy" @change="updateSortBy" class="select select-bordered">
-                <option value="status">Status (Running first)</option>
-                <option value="name">Name (A–Z)</option>
-                <option value="startupType">Startup Type</option>
-            </select>
-        </div>
 
-        <div class="form-control">
-            <label for="sortDirFilter" class="label">
-                Sort Direction
-            </label>
-            <div class="flex gap-2" id="sortDirFilter">
-                <Button
-                    :class="`btn btn-sm flex-1 ${sortDir === 'asc' ? 'btn-primary' : 'btn-neutral'}`"
-                    @clicked="updateSortDir('asc')">
-                    <Icon name="sortAsc" />
-                    Ascending
-                </Button>
-                <Button
-                    :class="`btn btn-sm flex-1 ${sortDir === 'desc' ? 'btn-primary' : 'btn-neutral'}`"
-                    @clicked="updateSortDir('desc')">
-                    <Icon name="sortDesc" />
-                    Descending
-                </Button>
-            </div>
-        </div>
-    </div>
 </template>
 
 <script setup>
@@ -124,14 +93,7 @@ const props = defineProps({
         type: String,
         default: '',
     },
-    sortBy: {
-        type: String,
-        default: 'status',
-    },
-    sortDir: {
-        type: String,
-        default: 'asc',
-    },
+
 })
 
 const emit = defineEmits(['filter', 'refresh', 'clear-filters'])
@@ -145,8 +107,6 @@ const updateSearch = (event) => {
         searchQuery: event.target.value,
         selectedStatus: props.selectedStatus,
         selectedStartupType: props.selectedStartupType,
-        sortBy: props.sortBy,
-        sortDir: props.sortDir,
     })
 }
 
@@ -155,8 +115,6 @@ const updateStatus = (event) => {
         searchQuery: props.searchQuery,
         selectedStatus: event.target.value,
         selectedStartupType: props.selectedStartupType,
-        sortBy: props.sortBy,
-        sortDir: props.sortDir,
     })
 }
 
@@ -165,30 +123,10 @@ const updateStartupType = (event) => {
         searchQuery: props.searchQuery,
         selectedStatus: props.selectedStatus,
         selectedStartupType: event.target.value,
-        sortBy: props.sortBy,
-        sortDir: props.sortDir,
     })
 }
 
-const updateSortBy = (event) => {
-    emit('filter', {
-        searchQuery: props.searchQuery,
-        selectedStatus: props.selectedStatus,
-        selectedStartupType: props.selectedStartupType,
-        sortBy: event.target.value,
-        sortDir: props.sortDir,
-    })
-}
 
-const updateSortDir = (dir) => {
-    emit('filter', {
-        searchQuery: props.searchQuery,
-        selectedStatus: props.selectedStatus,
-        selectedStartupType: props.selectedStartupType,
-        sortBy: props.sortBy,
-        sortDir: dir,
-    })
-}
 
 const clearFilters = () => {
     emit('clear-filters')

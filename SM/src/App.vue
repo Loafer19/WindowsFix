@@ -16,7 +16,6 @@
                         :servicesByStartupType="servicesByStartupType" :totalServices="totalServices"
                         :filteredCount="filteredServices.length" :totalCount="totalServices" :searchQuery="searchQuery"
                         :selectedStatus="selectedStatus" :selectedStartupType="selectedStartupType"
-                        :sortBy="sortBy" :sortDir="sortDir"
                         :history="history"
                         @filter="handleFilter" @refresh="refresh" @clear-filters="clearFilters"
                         @clear-history="clearHistory"
@@ -143,16 +142,16 @@ const tabs = ref([
         icon: 'fileChart',
     },
     {
+        id: 'presets',
+        name: 'Presets',
+        component: markRaw(PresetsTab),
+        icon: 'flashlight',
+    },
+    {
         id: 'history',
         name: 'History',
         component: markRaw(HistoryTab),
         icon: 'history',
-    },
-    {
-        id: 'presets',
-        name: 'Presets',
-        component: markRaw(PresetsTab),
-        icon: 'lightning',
     },
 ])
 
@@ -170,8 +169,6 @@ const {
     searchQuery,
     selectedStatus,
     selectedStartupType,
-    sortBy,
-    sortDir,
     filterServices,
     handleFilter,
     clearFilters,

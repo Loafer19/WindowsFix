@@ -22,8 +22,7 @@ export function useFiltering(allServices) {
     const searchQuery = ref('')
     const selectedStatus = ref('')
     const selectedStartupType = ref('')
-    const sortBy = ref('status')
-    const sortDir = ref('asc')
+
 
     const loadFiltersFromStorage = () => {
         const stored = localStorage.getItem('serviceFilters')
@@ -33,8 +32,6 @@ export function useFiltering(allServices) {
                 searchQuery.value = filters.searchQuery || ''
                 selectedStatus.value = filters.selectedStatus || ''
                 selectedStartupType.value = filters.selectedStartupType || ''
-                sortBy.value = filters.sortBy || 'status'
-                sortDir.value = filters.sortDir || 'asc'
             } catch (e) {
                 console.warn('Failed to parse stored filters:', e)
             }
@@ -46,35 +43,16 @@ export function useFiltering(allServices) {
             searchQuery: searchQuery.value,
             selectedStatus: selectedStatus.value,
             selectedStartupType: selectedStartupType.value,
-            sortBy: sortBy.value,
-            sortDir: sortDir.value,
         }
         localStorage.setItem('serviceFilters', JSON.stringify(filters))
     }
 
     watch(
-        [searchQuery, selectedStatus, selectedStartupType, sortBy, sortDir],
+        [searchQuery, selectedStatus, selectedStartupType],
         saveFiltersToStorage,
     )
 
-    const compareServices = (a, b) => {
-        const dir = sortDir.value === 'asc' ? 1 : -1
-        if (sortBy.value === 'name') {
-            return dir * a.name.localeCompare(b.name)
-        }
-        if (sortBy.value === 'status') {
-            const diff =
-                (STATUS_ORDER[a.status] ?? 99) - (STATUS_ORDER[b.status] ?? 99)
-            return diff !== 0 ? dir * diff : a.name.localeCompare(b.name)
-        }
-        if (sortBy.value === 'startupType') {
-            const diff =
-                (STARTUP_ORDER[a.startupType] ?? 99) -
-                (STARTUP_ORDER[b.startupType] ?? 99)
-            return diff !== 0 ? dir * diff : a.name.localeCompare(b.name)
-        }
-        return 0
-    }
+
 
     const filterServices = () => {
         let filtered = [...allServices.value]
@@ -100,7 +78,6 @@ export function useFiltering(allServices) {
             )
         }
 
-        filtered.sort(compareServices)
         filteredServices.value = filtered
     }
 
@@ -109,8 +86,6 @@ export function useFiltering(allServices) {
         selectedStatus.value = filterData.selectedStatus ?? selectedStatus.value
         selectedStartupType.value =
             filterData.selectedStartupType ?? selectedStartupType.value
-        sortBy.value = filterData.sortBy ?? sortBy.value
-        sortDir.value = filterData.sortDir ?? sortDir.value
         filterServices()
     }
 
@@ -118,8 +93,6 @@ export function useFiltering(allServices) {
         searchQuery.value = ''
         selectedStatus.value = ''
         selectedStartupType.value = ''
-        sortBy.value = 'status'
-        sortDir.value = 'asc'
         filterServices()
     }
 
@@ -130,8 +103,6 @@ export function useFiltering(allServices) {
         searchQuery,
         selectedStatus,
         selectedStartupType,
-        sortBy,
-        sortDir,
         filterServices,
         handleFilter,
         clearFilters,

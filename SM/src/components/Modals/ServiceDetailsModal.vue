@@ -6,16 +6,9 @@
                     <h3 class="font-bold text-lg">{{ selectedService?.name }}</h3>
                     <p class="text-base-content/60 text-sm">{{ selectedService?.displayName }}</p>
                 </div>
-                <div class="flex gap-2">
-                    <Button :text="'Reload Info'" class="btn btn-secondary btn-square btn-sm"
-                        :is-loading="selectedService?.isReloading" :disabled="selectedService?.isReloading"
-                        @clicked="$emit('reload', selectedService)">
-                        <Icon name="resetRight" />
-                    </Button>
-                    <button class="btn btn-ghost btn-square btn-sm" @click="$emit('close')">
-                        <Icon name="close" />
-                    </button>
-                </div>
+                <button class="btn btn-ghost btn-square btn-sm" @click="$emit('close')">
+                    <Icon name="close" />
+                </button>
             </div>
 
             <!-- Current State -->
@@ -103,11 +96,21 @@
                 </div>
 
                 <div v-if="selectedService.info?.recommendation" class="md:col-span-2">
-                    <label class="label label-text text-base-content/70">Recommendation</label>
+                    <label class="label label-text text-base-content/70 mb-2">Recommendation</label>
                     <div class="alert alert-info">
                         <div class="whitespace-pre-line">{{ selectedService.info.recommendation }}</div>
                     </div>
                 </div>
+            </div>
+
+            <div class="modal-action">
+                <button class="btn" @click="$emit('close')" :disabled="selectedService?.isReloading">Cancel</button>
+                <Button :text="'Reload Info'" class="btn btn-secondary"
+                    :is-loading="selectedService?.isReloading" :disabled="selectedService?.isReloading"
+                    @clicked="$emit('reload', selectedService)">
+                    <Icon name="resetRight" />
+                    Reload
+                </Button>
             </div>
         </div>
     </div>

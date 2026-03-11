@@ -40,7 +40,7 @@
 
             <!-- 24h hourly chart -->
             <div class="bg-base-200 rounded-lg p-4 mb-4">
-                <div class="text-sm font-semibold mb-3 text-base-content/70">Last 24 hours — hourly usage</div>
+                <div class="text-sm font-semibold mb-3 text-base-content/70">Last 24 hours - hourly usage</div>
                 <div v-if="history.length === 0" class="text-center py-8 text-base-content/40 text-sm">
                     No hourly history yet. Data accumulates over time.
                 </div>

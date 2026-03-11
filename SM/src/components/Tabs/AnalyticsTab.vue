@@ -4,7 +4,7 @@
             By Status
         </h4>
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div v-for="(count, status) in servicesByStatus" :key="status" class="bg-base-200 rounded-box p-4">
+            <div v-for="(count, status) in servicesByStatus" :key="status" class="bg-base-200 rounded-lg p-4">
                 <div class="flex items-center gap-2 capitalize font-medium">
                     {{ status }}
                 </div>
@@ -23,7 +23,7 @@
             By Startup Type
         </h4>
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            <div v-for="(count, type) in servicesByStartupType" :key="type" class="bg-base-200 rounded-box p-4">
+            <div v-for="(count, type) in servicesByStartupType" :key="type" class="bg-base-200 rounded-lg p-4">
                 <div class="flex items-center gap-2 capitalize font-medium">
                     {{ type }}
                 </div>

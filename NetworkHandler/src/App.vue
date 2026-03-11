@@ -59,6 +59,7 @@ import {
     getSettings,
     killProcess,
     setProcessLimit,
+    showNativeNotification,
     startCapture,
     stopCapture,
     unblockProcess,
@@ -110,7 +111,7 @@ onMounted(async () => {
     } catch {
         error.value = true
     }
-    pollInterval = setInterval(poll, 400)
+    pollInterval = setInterval(poll, 800)
 
     // Minimize-to-tray: intercept window close if configured
     try {
@@ -189,10 +190,15 @@ async function checkNotifications(procs, totals) {
                 for (const p of procs) {
                     if (!seenExes.has(p.exePath)) {
                         seenExes.add(p.exePath)
-                        pushNotification({
-                            type: 'warning',
-                            message: `New process: ${p.name}`,
-                        })
+                        const message = `New process: ${p.name}`
+                        if (notifConfig.displayMode === 'app') {
+                            pushNotification({
+                                type: 'warning',
+                                message,
+                            })
+                        } else if (notifConfig.displayMode === 'native') {
+                            showNativeNotification('NetSentry Alert', message)
+                        }
                     }
                 }
             }
@@ -208,10 +214,15 @@ async function checkNotifications(procs, totals) {
             !notifFiredDl.value
         ) {
             notifFiredDl.value = true
-            pushNotification({
-                type: 'warning',
-                message: `24h download reached ${dlGb.toFixed(2)} GB (threshold: ${notifConfig.downloadThresholdGb} GB)`,
-            })
+            const message = `24h download reached ${dlGb.toFixed(2)} GB (threshold: ${notifConfig.downloadThresholdGb} GB)`
+            if (notifConfig.displayMode === 'app') {
+                pushNotification({
+                    type: 'warning',
+                    message,
+                })
+            } else if (notifConfig.displayMode === 'native') {
+                showNativeNotification('NetSentry Alert', message)
+            }
         }
 
         // Upload threshold
@@ -222,10 +233,15 @@ async function checkNotifications(procs, totals) {
             !notifFiredUl.value
         ) {
             notifFiredUl.value = true
-            pushNotification({
-                type: 'warning',
-                message: `24h upload reached ${ulGb.toFixed(2)} GB (threshold: ${notifConfig.uploadThresholdGb} GB)`,
-            })
+            const message = `24h upload reached ${ulGb.toFixed(2)} GB (threshold: ${notifConfig.uploadThresholdGb} GB)`
+            if (notifConfig.displayMode === 'app') {
+                pushNotification({
+                    type: 'warning',
+                    message,
+                })
+            } else if (notifConfig.displayMode === 'native') {
+                showNativeNotification('NetSentry Alert', message)
+            }
         }
     } catch {
         /* ignore */

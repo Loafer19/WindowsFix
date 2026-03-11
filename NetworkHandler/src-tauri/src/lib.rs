@@ -56,6 +56,46 @@ fn persist_app_data(state: &Arc<AppState>) -> Result<(), String> {
     })
 }
 
+/// Show a Windows toast notification.
+fn show_windows_notification(title: &str, message: &str) -> Result<(), String> {
+    use windows::core::HSTRING;
+    use windows::UI::Notifications::*;
+    use windows::Data::Xml::Dom::*;
+
+    // Get the toast notification manager
+    let toast_manager = ToastNotificationManager::CreateToastNotifierWithId(&HSTRING::from("NetSentry"))
+        .map_err(|e| format!("Failed to create toast notifier: {:?}", e))?;
+
+    // Create XML document for the toast
+    let xml_doc = XmlDocument::new()
+        .map_err(|e| format!("Failed to create XML document: {:?}", e))?;
+
+    // Define the toast template
+    let toast_xml = format!(
+        r#"<toast>
+            <visual>
+                <binding template="ToastGeneric">
+                    <text>{}</text>
+                    <text>{}</text>
+                </binding>
+            </visual>
+        </toast>"#,
+        title, message
+    );
+
+    xml_doc.LoadXml(&HSTRING::from(toast_xml))
+        .map_err(|e| format!("Failed to load XML: {:?}", e))?;
+
+    // Create and show the toast
+    let toast = ToastNotification::CreateToastNotification(&xml_doc)
+        .map_err(|e| format!("Failed to create toast: {:?}", e))?;
+
+    toast_manager.Show(&toast)
+        .map_err(|e| format!("Failed to show toast: {:?}", e))?;
+
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // Capture control
 // ---------------------------------------------------------------------------
@@ -341,6 +381,11 @@ async fn set_notification_config(
     Ok(())
 }
 
+#[tauri::command]
+async fn show_native_notification(title: String, message: String) -> Result<(), String> {
+    show_windows_notification(&title, &message)
+}
+
 // ---------------------------------------------------------------------------
  // WinDivert management
  // ---------------------------------------------------------------------------
@@ -582,6 +627,7 @@ pub fn run() {
             set_settings,
             get_notification_config,
             set_notification_config,
+            show_native_notification,
             check_windivert_status,
             install_windivert,
             start_windivert_service,

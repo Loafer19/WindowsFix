@@ -78,6 +78,14 @@ async function setNotificationConfig(config) {
     return await invoke('set_notification_config', { config })
 }
 
+async function showNativeNotification(title, message) {
+    try {
+        return await invoke('show_native_notification', { title, message })
+    } catch (e) {
+        console.error('Failed to show native notification:', e)
+    }
+}
+
 async function checkWinDivertStatus() {
     return await invoke('check_windivert_status')
 }
@@ -106,6 +114,7 @@ export {
     setSettings,
     getNotificationConfig,
     setNotificationConfig,
+    showNativeNotification,
     checkWinDivertStatus,
     installWinDivert,
     startWinDivertService,

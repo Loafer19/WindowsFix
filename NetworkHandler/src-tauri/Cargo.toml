@@ -1,6 +1,6 @@
 [package]
 name = "net-sentry"
-version = "0.2.0"
+version = "0.2.1"
 description = "NetSentry - High-Performance Network Controller"
 authors = ["Popelyshyn Ruslan"]
 edition = "2021"
@@ -28,4 +28,6 @@ windows = { version = "0.62", features = [
     "Win32_System_Services",
     "Win32_Security",
     "Win32_System_SystemServices",
+    "UI_Notifications",
+    "Data_Xml_Dom",
 ] }

@@ -8,10 +8,10 @@
 
     <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div v-for="preset in presets" :key="preset.id"
-            class="card bg-base-200 card-border border-base-300 hover:border-primary transition-colors">
+            :class="`card bg-base-200 card-border border-base-300 hover:border-${preset.color} transition-colors`">
             <div class="card-body">
                 <div class="flex items-center gap-3 mb-2">
-                    <div :class="`bg-${preset.color}/20 text-${preset.color} p-2 rounded-box`">
+                    <div :class="`bg-${preset.color} text-${preset.color} p-2 rounded-lg`">
                         <Icon :name="preset.icon" class="w-6 h-6" />
                     </div>
                     <h3 class="card-title text-base-content">{{ preset.name }}</h3>

@@ -3,7 +3,7 @@
         <div class="modal-box max-w-2xl">
             <div class="flex items-center justify-between mb-2">
                 <h3 class="font-bold text-lg flex items-center gap-2">
-                    <Icon :name="preset?.icon || 'lightning'" class="w-5 h-5" />
+                    <Icon :name="preset?.icon" class="w-5 h-5" />
                     Apply "{{ preset?.name }}" Preset
                 </h3>
                 <button class="btn btn-ghost btn-square btn-sm" @click="$emit('close')">
@@ -45,7 +45,7 @@
                     :is-loading="applying"
                     :disabled="applying"
                     @clicked="$emit('confirm', preset)">
-                    <Icon :name="preset?.icon || 'lightning'" />
+                    <Icon :name="preset?.icon" />
                     Apply Preset
                 </Button>
             </div>

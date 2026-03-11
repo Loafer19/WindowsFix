@@ -250,6 +250,7 @@ const LIMIT_PRESETS = Object.freeze([
 
 const NOTIF_MODES = Object.freeze([
     { value: 'app', label: 'App only' },
+    { value: 'native', label: 'Native Windows' },
     { value: 'disabled', label: 'Disabled' },
 ])
 
