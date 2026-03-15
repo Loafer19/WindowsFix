@@ -17,10 +17,6 @@ use models::{AppState, HourlyPoint, NetworkStats, NotificationConfig, ProcessInf
 // Embedded WinDivert driver file
 static WINDRIVER_SYS: &[u8] = include_bytes!("../drivers/WinDivert64.sys");
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 /// Look up the cached exe path for `pid`, falling back to a descriptive string.
 fn exe_path_for_pid_cached(pid: u32, state: &AppState) -> String {
     state
@@ -96,10 +92,6 @@ fn show_windows_notification(title: &str, message: &str) -> Result<(), String> {
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// Capture control
-// ---------------------------------------------------------------------------
-
 #[tauri::command]
 async fn start_capture(state: State<'_, Arc<AppState>>) -> Result<(), String> {
     let already = state.capture_running.swap(true, Ordering::Relaxed);
@@ -119,16 +111,23 @@ async fn stop_capture(state: State<'_, Arc<AppState>>) -> Result<(), String> {
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// Stats / process list
-// ---------------------------------------------------------------------------
-
 #[tauri::command]
 async fn get_network_stats(state: State<'_, Arc<AppState>>) -> Result<NetworkStats, String> {
     let w = state.window.lock().unwrap();
+    let elapsed = w.start_time.elapsed().as_secs_f64();
+    let download_bps = if elapsed > 0.0 {
+        ((w.download_bytes as f64) / elapsed) as u64
+    } else {
+        0
+    };
+    let upload_bps = if elapsed > 0.0 {
+        ((w.upload_bytes as f64) / elapsed) as u64
+    } else {
+        0
+    };
     Ok(NetworkStats {
-        download_bps: w.download_bytes,
-        upload_bps: w.upload_bytes,
+        download_bps,
+        upload_bps,
     })
 }
 
@@ -209,10 +208,6 @@ async fn get_processes(state: State<'_, Arc<AppState>>) -> Result<Vec<ProcessInf
     Ok(list)
 }
 
-// ---------------------------------------------------------------------------
-// Traffic shaping
-// ---------------------------------------------------------------------------
-
 #[tauri::command]
 async fn set_global_limit(
     bytes_per_sec: u64,
@@ -289,10 +284,6 @@ async fn unblock_process(pid: u32, state: State<'_, Arc<AppState>>) -> Result<()
     persist_app_data(&state)
 }
 
-// ---------------------------------------------------------------------------
-// Process control
-// ---------------------------------------------------------------------------
-
 #[tauri::command]
 async fn kill_process(pid: u32) -> Result<(), String> {
     use windows::Win32::Foundation::CloseHandle;
@@ -309,29 +300,62 @@ async fn kill_process(pid: u32) -> Result<(), String> {
 
 
 
-// ---------------------------------------------------------------------------
-// 24-hour history & settings commands
-// ---------------------------------------------------------------------------
-
 #[tauri::command]
 async fn get_process_history(
     exe_path: String,
+    period: String,
     state: State<'_, Arc<AppState>>,
 ) -> Result<Vec<HourlyPoint>, String> {
-    let hourly = state.process_hourly.lock().unwrap();
-    let points = hourly
+    let hourly = state.process_hourly.lock().unwrap_or_else(|e| e.into_inner());
+    let raw_points: Vec<(u64, u64)> = hourly
         .get(&exe_path)
-        .map(|deque| {
-            deque
-                .iter()
-                .map(|&(dl, ul)| HourlyPoint {
-                    download_bytes: dl,
-                    upload_bytes: ul,
-                })
-                .collect()
+        .cloned()
+        .unwrap_or_default()
+        .into();
+
+    let aggregated = match period.as_str() {
+        "24h" => {
+            // Last 24 hours, hourly
+            raw_points.into_iter().rev().take(24).rev().collect()
+        }
+        "7d" => {
+            // Last 7 days, daily (24 hours aggregated)
+            aggregate_daily(&raw_points, 7)
+        }
+        "30d" => {
+            // Last 30 days, daily
+            aggregate_daily(&raw_points, 30)
+        }
+        _ => raw_points.into_iter().rev().take(24).rev().collect(),
+    };
+
+    let points = aggregated
+        .into_iter()
+        .map(|(dl, ul)| HourlyPoint {
+            download_bytes: dl,
+            upload_bytes: ul,
         })
-        .unwrap_or_default();
+        .collect();
     Ok(points)
+}
+
+fn aggregate_daily(raw: &[(u64, u64)], days: usize) -> Vec<(u64, u64)> {
+    let hours_per_day = 24;
+    let total_hours = days * hours_per_day;
+    let mut result = Vec::new();
+    let start_base = raw.len().saturating_sub(total_hours);
+    for day in 0..days {
+        let start_idx = start_base + day * hours_per_day;
+        if start_idx >= raw.len() {
+            result.push((0, 0));
+            continue;
+        }
+        let end_idx = (start_idx + hours_per_day).min(raw.len());
+        let day_data = &raw[start_idx..end_idx];
+        let (dl, ul) = day_data.iter().fold((0u64, 0u64), |(a, b), &(d, u)| (a + d, b + u));
+        result.push((dl, ul));
+    }
+    result
 }
 
 #[tauri::command]
@@ -504,10 +528,6 @@ async fn start_windivert_service() -> Result<(), String> {
 
     Ok(())
 }
-
-// ---------------------------------------------------------------------------
-// App entry point
-// ---------------------------------------------------------------------------
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {

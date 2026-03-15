@@ -42,7 +42,6 @@
                                 <Icon :name="sortIcon('totalUploadBytes')" class="w-3 h-3" />
                             </button>
                         </th>
-                        <th class="min-w-36">Throttle (KB/s)</th>
                         <th>Actions</th>
                     </tr>
                 </thead>
@@ -60,16 +59,16 @@
                                 <span class="font-medium" :class="proc.blocked ? 'line-through text-error' : ''">{{ proc.name }}</span>
                             </div>
                         </td>
-                        <td><span class="badge badge-primary font-mono">{{ formatSpeed(proc.downloadBps) }}</span></td>
-                        <td><span class="badge badge-info font-mono">{{ formatSpeed(proc.uploadBps) }}</span></td>
-                        <td><span class="badge badge-primary font-mono">{{ formatBytes(proc.totalDownloadBytes) }}</span></td>
-                        <td><span class="badge badge-info font-mono">{{ formatBytes(proc.totalUploadBytes) }}</span></td>
-                        <td @click.stop>
-                            <input v-if="proc.pid" type="number" class="input input-bordered input-sm w-24 font-mono" min="0" placeholder="no limit"
-                                :value="proc.limitBps ? Math.round(proc.limitBps / 1024) : ''"
-                                @change="onThrottleChange(proc, $event)" @keydown.enter="$event.target.blur()" />
-                            <span v-else class="text-xs text-base-content/30">-</span>
+                        <td>
+                            <span v-if="proc.limitBps" class="tooltip inline-block w-2 h-2 bg-error rounded-full me-1" :data-tip="`Throttled to ${formatSpeed(proc.limitBps)}`"></span>
+                            <span class="badge badge-primary font-mono whitespace-nowrap">{{ formatSpeed(proc.downloadBps) }}</span>
                         </td>
+                        <td>
+                            <span v-if="proc.limitBps" class="tooltip inline-block w-2 h-2 bg-error rounded-full me-1" :data-tip="`Throttled to ${formatSpeed(proc.limitBps)}`"></span>
+                            <span class="badge badge-info font-mono whitespace-nowrap">{{ formatSpeed(proc.uploadBps) }}</span>
+                        </td>
+                        <td><span class="badge badge-primary font-mono whitespace-nowrap">{{ formatBytes(proc.totalDownloadBytes) }}</span></td>
+                        <td><span class="badge badge-info font-mono whitespace-nowrap">{{ formatBytes(proc.totalUploadBytes) }}</span></td>
                         <td @click.stop>
                             <div class="flex items-center gap-1">
                                 <div class="tooltip" :data-tip="proc.blocked ? 'Unblock' : 'Block traffic'">
@@ -91,7 +90,6 @@
             </table>
         </div>
 
-        <!-- Process detail modal -->
         <ProcessModal
             v-if="modalProc"
             :proc="modalProc"
@@ -112,11 +110,7 @@ const props = defineProps({
     processes: { type: Array, default: () => [] },
 })
 
-const emit = defineEmits([
-    'block-toggle',
-    'terminate',
-    'throttle',
-])
+const emit = defineEmits(['block-toggle', 'terminate', 'throttle'])
 
 const searchQuery = ref('')
 const sortField = ref('totalDownloadBytes')
@@ -127,7 +121,10 @@ const filtered = computed(() => {
     const q = searchQuery.value.toLowerCase()
     if (!q) return props.processes
     return props.processes.filter(
-        (p) => p.name.toLowerCase().includes(q) || p.exePath.toLowerCase().includes(q) || String(p.pid).includes(q),
+        (p) =>
+            p.name.toLowerCase().includes(q) ||
+            p.exePath.toLowerCase().includes(q) ||
+            String(p.pid).includes(q),
     )
 })
 

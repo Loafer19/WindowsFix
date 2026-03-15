@@ -124,6 +124,7 @@ pub fn capture_loop(state: Arc<AppState>) {
             let mut w = state.window.lock().unwrap();
             w.download_bytes = 0;
             w.upload_bytes = 0;
+            w.start_time = Instant::now();
             drop(w);
             state.process_bytes.lock().unwrap().clear();
             window_tick = Instant::now();

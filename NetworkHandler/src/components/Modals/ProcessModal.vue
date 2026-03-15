@@ -1,8 +1,6 @@
 <template>
-    <!-- Modal backdrop -->
     <div class="modal modal-open" @click.self="emit('close')">
         <div class="modal-box max-w-2xl w-full">
-            <!-- Header -->
             <div class="flex items-start justify-between mb-2">
                 <div>
                     <h3 class="font-bold text-xl">{{ proc.name }}</h3>
@@ -14,12 +12,10 @@
 
             <div class="flex items-center gap-3 mb-3">
                 <span class="badge badge-ghost font-mono text-xs">{{ proc.pid ? `PID ${proc.pid}` : 'Not running' }}</span>
-                <span class="badge badge-ghost font-mono text-xs truncate max-w-xs" :title="proc.exePath">{{ proc.exePath }}</span>
-                <span v-if="proc.blocked" class="badge badge-error text-xs">Blocked</span>
+                <span class="badge badge-ghost font-mono text-xs">{{ proc.exePath }}</span>
             </div>
 
-            <!-- Live stats row -->
-            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
                 <div class="bg-base-200 rounded-lg p-3 text-center">
                     <div class="text-xs text-base-content/60 mb-1">Download</div>
                     <div class="font-bold text-primary font-mono">{{ formatSpeed(proc.downloadBps) }}</div>
@@ -38,16 +34,27 @@
                 </div>
             </div>
 
-            <!-- 24h hourly chart -->
             <div class="bg-base-200 rounded-lg p-4 mb-4">
-                <div class="text-sm font-semibold mb-3 text-base-content/70">Last 24 hours - hourly usage</div>
+                <div class="flex items-center justify-between mb-3">
+                    <div class="text-sm font-semibold text-base-content/70">{{ periodLabel }}</div>
+                    <div class="flex gap-1">
+                        <button
+                            v-for="p in periods"
+                            :key="p.key"
+                            class="btn btn-xs"
+                            :class="{ 'btn-primary': selectedPeriod === p.key, 'btn-ghost': selectedPeriod !== p.key }"
+                            @click="selectedPeriod = p.key; loadHistory()"
+                        >
+                            {{ p.label }}
+                        </button>
+                    </div>
+                </div>
                 <div v-if="history.length === 0" class="text-center py-8 text-base-content/40 text-sm">
-                    No hourly history yet. Data accumulates over time.
+                    No history yet. Data accumulates over time.
                 </div>
                 <Bar v-else :data="chartData" :options="chartOptions" />
             </div>
 
-            <!-- Throttle / info row -->
             <div class="flex items-center gap-4 flex-wrap">
                 <div v-if="proc.pid" class="flex items-center gap-2">
                     <span class="text-sm text-base-content/70">Throttle:</span>
@@ -65,6 +72,7 @@
                 <span v-if="proc.limitBps" class="badge badge-warning font-mono text-xs">
                     Limited to {{ formatSpeed(proc.limitBps) }}
                 </span>
+                <span v-if="proc.blocked" class="badge badge-error text-xs">Blocked</span>
             </div>
         </div>
     </div>
@@ -96,21 +104,47 @@ const props = defineProps({
 const emit = defineEmits(['close', 'throttle'])
 
 const history = ref([])
+const selectedPeriod = ref('24h')
 
-onMounted(async () => {
-    try {
-        history.value = await getProcessHistory(props.proc.exePath)
-    } catch {
-        history.value = []
+const periods = [
+    { key: '24h', label: '24h' },
+    { key: '7d', label: '7d' },
+    { key: '30d', label: '30d' },
+]
+
+const periodLabel = computed(() => {
+    switch (selectedPeriod.value) {
+        case '24h':
+            return 'Last 24 hours - hourly usage'
+        case '7d':
+            return 'Last 7 days - daily usage'
+        case '30d':
+            return 'Last 30 days - daily usage'
+        default:
+            return 'Usage'
     }
 })
 
+async function loadHistory() {
+    try {
+        history.value = await getProcessHistory(
+            props.proc.exePath,
+            selectedPeriod.value,
+        )
+    } catch {
+        history.value = []
+    }
+}
+
+onMounted(loadHistory)
 
 const hourLabels = computed(() => {
     const n = history.value.length
+    if (n === 0) return []
+    const unit = selectedPeriod.value === '24h' ? 'h' : 'd'
     return Array.from({ length: n }, (_, i) => {
         const offset = n - 1 - i
-        return offset === 0 ? 'now' : `-${offset}h`
+        return offset === 0 ? 'now' : `-${offset}${unit}`
     })
 })
 
@@ -139,7 +173,7 @@ const chartData = computed(() => ({
     ],
 }))
 
-const chartOptions = {
+const chartOptions = computed(() => ({
     responsive: true,
     animation: false,
     interaction: { mode: 'index', intersect: false },
@@ -156,7 +190,10 @@ const chartOptions = {
     },
     scales: {
         x: {
-            ticks: { color: CHART_TEXT_COLOR, maxTicksLimit: 12 },
+            ticks: {
+                color: CHART_TEXT_COLOR,
+                maxTicksLimit: selectedPeriod.value === '24h' ? 12 : 7,
+            },
             grid: { color: CHART_GRID_COLOR },
         },
         y: {
@@ -168,7 +205,7 @@ const chartOptions = {
             grid: { color: CHART_GRID_COLOR },
         },
     },
-}
+}))
 
 function onThrottleChange(event) {
     const kb = Number(event.target.value)

@@ -50,7 +50,6 @@
 <script setup>
 import { presets } from '../../services/presets.js'
 import Button from '../Button.vue'
-import Icon from '../Icon.vue'
 
 defineEmits(['apply-preset'])
 </script>

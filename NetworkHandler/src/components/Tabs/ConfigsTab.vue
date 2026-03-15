@@ -238,7 +238,6 @@ import Icon from '../Icon.vue'
 
 const emit = defineEmits(['notification'])
 
-
 const LIMIT_PRESETS = Object.freeze([
     { value: 0, label: 'Unlimited' },
     { value: 131_072, label: '128 KB/s' },
@@ -251,7 +250,6 @@ const LIMIT_PRESETS = Object.freeze([
 const NOTIF_MODES = Object.freeze([
     { value: 'app', label: 'App only' },
     { value: 'native', label: 'Native Windows' },
-    { value: 'disabled', label: 'Disabled' },
 ])
 
 const notif = reactive({
@@ -291,7 +289,9 @@ onMounted(async () => {
         Object.assign(appSettings, s)
         Object.assign(notif, n)
         Object.assign(windivertStatus, w)
-        const index = LIMIT_PRESETS.findIndex(p => p.value === appSettings.globalLimitBps)
+        const index = LIMIT_PRESETS.findIndex(
+            (p) => p.value === appSettings.globalLimitBps,
+        )
         if (index >= 0) {
             limitIndex.value = index
         }
@@ -303,18 +303,30 @@ onMounted(async () => {
 async function saveNotif() {
     try {
         await setNotificationConfig({ ...notif })
-        emit('notification', { type: 'success', message: 'Notification settings updated' })
+        emit('notification', {
+            type: 'success',
+            message: 'Notification settings updated',
+        })
     } catch {
-        emit('notification', { type: 'error', message: 'Failed to update notification settings' })
+        emit('notification', {
+            type: 'error',
+            message: 'Failed to update notification settings',
+        })
     }
 }
 
 async function saveGlobalLimit(bytesPerSec) {
     try {
         await setGlobalLimit(bytesPerSec)
-        emit('notification', { type: 'success', message: 'Global speed limit updated' })
+        emit('notification', {
+            type: 'success',
+            message: 'Global speed limit updated',
+        })
     } catch {
-        emit('notification', { type: 'error', message: 'Failed to update global speed limit' })
+        emit('notification', {
+            type: 'error',
+            message: 'Failed to update global speed limit',
+        })
     }
 }
 
@@ -330,10 +342,16 @@ async function saveAppSettings() {
     settingsError.value = ''
     try {
         await setSettings({ ...appSettings })
-        emit('notification', { type: 'success', message: 'Application settings updated' })
+        emit('notification', {
+            type: 'success',
+            message: 'Application settings updated',
+        })
     } catch (e) {
         settingsError.value = String(e)
-        emit('notification', { type: 'error', message: 'Failed to update application settings' })
+        emit('notification', {
+            type: 'error',
+            message: 'Failed to update application settings',
+        })
     } finally {
         savingSettings.value = false
     }
@@ -343,11 +361,17 @@ async function installWindivertHandler() {
     installingWindivert.value = true
     try {
         await installWinDivert()
-        emit('notification', { type: 'success', message: 'WinDivert installed successfully' })
+        emit('notification', {
+            type: 'success',
+            message: 'WinDivert installed successfully',
+        })
         const status = await checkWinDivertStatus()
         Object.assign(windivertStatus, status)
     } catch (e) {
-        emit('notification', { type: 'error', message: `Failed to install WinDivert: ${e}` })
+        emit('notification', {
+            type: 'error',
+            message: `Failed to install WinDivert: ${e}`,
+        })
     } finally {
         installingWindivert.value = false
     }
@@ -357,11 +381,17 @@ async function startWindivertServiceHandler() {
     installingWindivert.value = true
     try {
         await startWinDivertService()
-        emit('notification', { type: 'success', message: 'WinDivert service started successfully' })
+        emit('notification', {
+            type: 'success',
+            message: 'WinDivert service started successfully',
+        })
         const status = await checkWinDivertStatus()
         Object.assign(windivertStatus, status)
     } catch (e) {
-        emit('notification', { type: 'error', message: `Failed to start WinDivert service: ${e}` })
+        emit('notification', {
+            type: 'error',
+            message: `Failed to start WinDivert service: ${e}`,
+        })
     } finally {
         installingWindivert.value = false
     }

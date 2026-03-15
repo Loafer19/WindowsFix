@@ -18,8 +18,6 @@
 </template>
 
 <script setup>
-import Icon from '../Icon.vue'
-
 const props = defineProps({
     showModal: {
         type: Boolean,

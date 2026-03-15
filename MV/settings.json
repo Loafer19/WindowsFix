@@ -1,0 +1,13 @@
+{
+  "show_settings": false,
+  "transparency": 1.0,
+  "auto_switch_modes": false,
+  "mode_switch_seconds": 30.0,
+  "smoothing_factor": 0.3,
+  "gain": 0.5,
+  "color_scheme": "Fire",
+  "bass_boost": 0.0,
+  "disabled_plugins": [],
+  "beat_sensitivity": "Low",
+  "selected_device": "Microphone (Razer Kiyo X)"
+}

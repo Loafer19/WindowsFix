@@ -70,7 +70,6 @@
 
 <script setup>
 import Button from '../Button.vue'
-import Icon from '../Icon.vue'
 
 const props = defineProps({
     filteredCount: {

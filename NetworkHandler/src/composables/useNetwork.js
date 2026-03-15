@@ -2,15 +2,6 @@ import { ref } from 'vue'
 
 const HISTORY_POINTS = 60
 
-/**
- * Convert bytes/s to dBbps (decibels relative to 1 B/s).
- * Formula: 10 · log₁₀(bps), clamped to 0 for bps ≤ 1 to avoid −Infinity at zero traffic.
- */
-export function toDb(bps) {
-    if (bps <= 1) return 0
-    return 10 * Math.log10(bps)
-}
-
 export function formatSpeed(bps) {
     if (bps >= 1_048_576) return `${(bps / 1_048_576).toFixed(1)} MB/s`
     if (bps >= 1024) return `${(bps / 1024).toFixed(1)} KB/s`

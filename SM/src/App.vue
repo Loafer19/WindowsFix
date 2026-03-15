@@ -35,7 +35,7 @@
                 </div>
             </div>
 
-            <div v-else class="card bg-base-100 card-border border-base-300">
+            <div v-if="!loading && !error && activeTab === FiltersTab" class="card bg-base-100 card-border border-base-300">
                 <div class="overflow-x-auto">
                     <table class="table">
                         <thead>
@@ -104,7 +104,6 @@
 <script setup>
 import { markRaw, onMounted, ref } from 'vue'
 import Button from './components/Button.vue'
-import Icon from './components/Icon.vue'
 import ConfirmDisableModal from './components/Modals/ConfirmDisableModal.vue'
 import PresetConfirmModal from './components/Modals/PresetConfirmModal.vue'
 import ServiceDetailsModal from './components/Modals/ServiceDetailsModal.vue'

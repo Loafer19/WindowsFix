@@ -3,3 +3,4 @@ linker = "C:/Users/Admin/.rustup/toolchains/stable-x86_64-pc-windows-gnu/lib/rus
 
 [target.x86_64-pc-windows-msvc]
 linker = "rust-lld.exe"
+rustflags = ["-C", "link-args=/FORCE:MULTIPLE"]

@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NetworkStats {
@@ -66,7 +67,7 @@ pub struct NotificationConfig {
     /// Notify when global 24 h upload exceeds this many GB (0 = disabled).
     #[serde(rename = "uploadThresholdGb", default = "default_5gb")]
     pub upload_threshold_gb: f64,
-    /// Where to show alerts: "app" (in-app toasts) | "native" (Windows system notifications) | "disabled".
+    /// Where to show alerts: "app" (in-app toasts) | "native" (Windows system notifications).
     #[serde(rename = "displayMode", default = "default_display_mode")]
     pub display_mode: String,
 }
@@ -104,6 +105,7 @@ impl Default for NotificationConfig {
 pub struct BandwidthWindow {
     pub download_bytes: u64,
     pub upload_bytes: u64,
+    pub start_time: Instant,
 }
 
 pub struct AppState {
@@ -145,6 +147,7 @@ impl AppState {
             window: Arc::new(Mutex::new(BandwidthWindow {
                 download_bytes: 0,
                 upload_bytes: 0,
+                start_time: Instant::now(),
             })),
             process_bytes: Arc::new(Mutex::new(HashMap::new())),
             process_total_bytes: Arc::new(Mutex::new(process_total_bytes)),

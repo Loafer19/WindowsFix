@@ -6,6 +6,7 @@ use crate::error::AppResult;
 use crate::gpu::GpuResources;
 use crate::settings::{AppSettings, BeatSensitivity, ColorScheme};
 use crate::types::VisUniforms;
+use cpal::traits::DeviceTrait;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use winit::application::ApplicationHandler;
@@ -30,7 +31,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
 pub struct App {
     window: Option<Arc<Window>>,
     gpu: Option<GpuResources>,
-    audio: AudioHandler,
+    audio: Option<AudioHandler>,
+    devices: Vec<cpal::Device>,
     uniforms: VisUniforms,
     current_plugin_index: usize,
     transparent: bool,
@@ -39,10 +41,13 @@ pub struct App {
     transparency_level: u8,
     show_info: bool,
     info_timer: Option<Instant>,
+    show_device_selection: bool,
+    pending_device_index: Option<usize>,
     settings: AppSettings,
     egui_ctx: egui::Context,
     egui_raw_input: egui::RawInput,
     egui_pointer_pos: egui::Pos2,
+    current_modifiers: winit::keyboard::ModifiersState,
     transition_time: f32,
     transition_active: bool,
     last_mode_switch: Instant,
@@ -50,11 +55,31 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(audio: AudioHandler) -> Self {
+    pub fn new(devices: Vec<cpal::Device>, settings: AppSettings) -> Self {
+        let mut audio = None;
+        let mut show_device_selection = false;
+
+        if let Some(selected_name) = &settings.selected_device {
+            if let Some(index) = devices.iter().position(|d| d.name().ok().as_ref() == Some(selected_name)) {
+                if let Ok(audio_handler) = AudioHandler::new(devices[index].clone()) {
+                    audio = Some(audio_handler);
+                } else {
+                    // Failed to init, show selection
+                    show_device_selection = true;
+                }
+            } else {
+                // Device not found, show selection
+                show_device_selection = true;
+            }
+        } else {
+            show_device_selection = true;
+        }
+
         Self {
             window: None,
             gpu: None,
             audio,
+            devices,
             uniforms: VisUniforms {
                 color: DEFAULT_COLOR,
                 intensity: DEFAULT_INTENSITY,
@@ -77,10 +102,13 @@ impl App {
             transparency_level: DEFAULT_TRANSPARENCY,
             show_info: false,
             info_timer: None,
-            settings: AppSettings::new(),
+            show_device_selection,
+            pending_device_index: None,
+            settings,
             egui_ctx: egui::Context::default(),
             egui_raw_input: egui::RawInput::default(),
             egui_pointer_pos: egui::Pos2::ZERO,
+            current_modifiers: winit::keyboard::ModifiersState::default(),
             transition_time: 0.0,
             transition_active: false,
             last_mode_switch: Instant::now(),
@@ -93,11 +121,31 @@ impl App {
         self.gpu = Some(gpu);
     }
 
+    pub fn init_audio(&mut self, device_index: usize) -> AppResult<()> {
+        if let Some(device) = self.devices.get(device_index) {
+            let audio_handler = AudioHandler::new(device.clone())?;
+            self.audio = Some(audio_handler);
+            if let Some(name) = device.name().ok() {
+                self.settings.selected_device = Some(name);
+                self.settings.save().ok();
+            }
+            Ok(())
+        } else {
+            Err(crate::error::AppError::Audio("Invalid device index".to_string()))
+        }
+    }
+
     pub fn update(&mut self) {
         if let Some(timer) = self.info_timer {
             if timer.elapsed() > Duration::from_secs(10) {
                 self.show_info = false;
                 self.info_timer = None;
+            }
+        }
+
+        if let Some(index) = self.pending_device_index.take() {
+            if let Err(e) = self.init_audio(index) {
+                eprintln!("Failed to initialize audio: {:?}", e);
             }
         }
 
@@ -156,13 +204,19 @@ impl App {
             self.uniforms.gain = self.settings.gain;
             self.uniforms.color = self.settings.scheme_color();
 
-            let audio_data = self.audio.buffer.lock().unwrap().clone();
-            let beat_threshold = match self.settings.beat_sensitivity {
-                BeatSensitivity::Low    => BEAT_THRESHOLD_HIGH,
-                BeatSensitivity::Medium => BEAT_THRESHOLD_MED,
-                BeatSensitivity::High   => BEAT_THRESHOLD_LOW,
-            };
-            gpu.update(&self.uniforms, &audio_data, beat_threshold);
+            if let Some(audio) = &self.audio {
+                let audio_data = audio.buffer.lock().unwrap().clone();
+                let beat_threshold = match self.settings.beat_sensitivity {
+                    BeatSensitivity::Low    => BEAT_THRESHOLD_HIGH,
+                    BeatSensitivity::Medium => BEAT_THRESHOLD_MED,
+                    BeatSensitivity::High   => BEAT_THRESHOLD_LOW,
+                };
+                gpu.update(&self.uniforms, &audio_data, beat_threshold);
+            } else {
+                // No audio, use empty data
+                let audio_data = vec![0.0; crate::constants::SAMPLE_SIZE];
+                gpu.update(&self.uniforms, &audio_data, BEAT_THRESHOLD_MED);
+            }
         }
     }
 
@@ -198,11 +252,16 @@ impl App {
             egui::Window::new("ℹ Controls")
                 .open(&mut show_info)
                 .resizable(false)
+                .collapsible(false)
                 .default_width(300.0)
+                .frame(egui::Frame::window(&ctx.style()).shadow(egui::epaint::Shadow::NONE))
                 .show(ctx, |ui| {
                     ui.vertical_centered(|ui| {
                         ui.heading(format!("Mode: {}", plugin_name));
                     });
+                    ui.separator();
+                    let device_name = self.settings.selected_device.as_deref().unwrap_or("None");
+                    ui.label(format!("🎤 Audio Device: {}", device_name));
                     ui.separator();
                     ui.label("🎮 Controls:");
                     ui.add_space(5.0);
@@ -210,8 +269,10 @@ impl App {
                     let controls = [
                         ("F1",        "Toggle info panel"),
                         ("F2",        "Open settings"),
+                        ("F3",        "Select audio device"),
                         ("F11",       "Toggle fullscreen"),
-                        ("Space / M", "Switch visualization mode"),
+                        ("Space / M", "Next visualization mode"),
+                        ("Shift+Space", "Previous visualization mode"),
                         ("T",         "Cycle window: Normal → Transparent → Overlay (always-on-top + click-through)"),
                         ("← / →",    "Adjust opacity"),
                         ("↑ / ↓",    "Adjust intensity"),
@@ -231,6 +292,8 @@ impl App {
             egui::Window::new("⚙ Settings")
                 .open(&mut settings_copy.show_settings)
                 .resizable(true)
+                .collapsible(false)
+                .frame(egui::Frame::window(&ctx.style()).shadow(egui::epaint::Shadow::NONE))
                 .show(ctx, |ui| {
                     ui.add(egui::Slider::new(&mut settings_copy.smoothing_factor, 0.01..=0.3).text("Smoothing"));
                     ui.add(egui::Slider::new(&mut settings_copy.gain, 0.5..=5.0).text("Gain"));
@@ -273,6 +336,25 @@ impl App {
                         });
                     }
                 });
+
+            let mut pending = self.pending_device_index;
+            egui::Window::new("🎤 Audio Device")
+                .open(&mut self.show_device_selection)
+                .resizable(false)
+                .collapsible(false)
+                .frame(egui::Frame::window(&ctx.style()).shadow(egui::epaint::Shadow::NONE))
+                .show(ctx, |ui| {
+                    ui.label("Choose an audio input device:");
+                    ui.separator();
+                    for (i, device) in self.devices.iter().enumerate() {
+                        let name = device.name().unwrap_or_else(|_| "Unknown".to_string());
+                        let is_selected = self.settings.selected_device.as_ref() == Some(&name);
+                        if ui.selectable_label(is_selected, &name).clicked() {
+                            pending = Some(i);
+                        }
+                    }
+                });
+            self.pending_device_index = pending;
         });
 
         // Write back values that the egui closures may have changed.
@@ -411,14 +493,15 @@ impl App {
             PhysicalKey::Code(KeyCode::Space) | PhysicalKey::Code(KeyCode::KeyM) => {
                 if let Some(gpu) = &self.gpu {
                     let num = gpu.plugins.len();
-                    let mut next = (self.current_plugin_index + 1) % num;
+                    let step = if self.current_modifiers.shift_key() { num - 1 } else { 1 };
+                    let mut next = (self.current_plugin_index + step) % num;
                     let mut found = false;
                     for _ in 0..num {
                         if !self.settings.disabled_plugins.contains(&gpu.plugins[next].name) {
                             found = true;
                             break;
                         }
-                        next = (next + 1) % num;
+                        next = (next + step) % num;
                     }
                     if found {
                         self.current_plugin_index = next;
@@ -498,6 +581,9 @@ impl App {
                     }
                 }
             }
+            PhysicalKey::Code(KeyCode::F3) => {
+                self.show_device_selection = !self.show_device_selection;
+            }
             _ => {}
         }
     }
@@ -533,6 +619,7 @@ impl ApplicationHandler for App {
 
         match event {
             WindowEvent::Resized(new_size) => self.resize(new_size),
+            WindowEvent::ModifiersChanged(modifiers) => self.current_modifiers = modifiers.state(),
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::KeyboardInput {
                 event: KeyEvent { physical_key: PhysicalKey::Code(KeyCode::Escape), state: ElementState::Pressed, .. },
@@ -569,7 +656,8 @@ impl ApplicationHandler for App {
                 self.settings.show_settings = !self.settings.show_settings;
             }
             WindowEvent::KeyboardInput {
-                event: KeyEvent { physical_key, state: ElementState::Pressed, .. }, ..
+                event: KeyEvent { physical_key, state: ElementState::Pressed, .. },
+                ..
             } => {
                 self.handle_key_press(physical_key);
             }

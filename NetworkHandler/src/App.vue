@@ -16,7 +16,6 @@
                 <div class="text-xs">Ensure the application is running as Administrator.</div>
             </div>
 
-            <!-- Notification toasts -->
             <div class="fixed top-4 right-4 z-50 flex flex-col gap-2 max-w-sm">
                 <div v-for="n in notifications" :key="n.id"
                     :class="`alert alert-${n.type} shadow-lg py-2 px-4 text-sm flex items-center gap-2`">
@@ -91,7 +90,6 @@ const error = ref(false)
 const processes = ref([])
 const totals24h = ref({ downloadBytes: 0, uploadBytes: 0 })
 
-// Notification toasts
 const notifications = ref([])
 let nextNotifId = 0
 // Track which threshold notification was already fired this session
@@ -111,7 +109,7 @@ onMounted(async () => {
     } catch {
         error.value = true
     }
-    pollInterval = setInterval(poll, 800)
+    pollInterval = setInterval(poll, 1000)
 
     // Minimize-to-tray: intercept window close if configured
     try {
@@ -156,7 +154,8 @@ async function poll() {
 
         // Merge server data with local UI state flags (isPending, isTerminating)
         processes.value = procs.map((p) => {
-            const existing = processes.value.find((e) => e.exePath === p.exePath) ?? {}
+            const existing =
+                processes.value.find((e) => e.exePath === p.exePath) ?? {}
             return {
                 ...p,
                 isPending: existing.isPending ?? false,
@@ -164,7 +163,6 @@ async function poll() {
             }
         })
 
-        // Notification checks
         await checkNotifications(procs, totals)
     } catch {
         // capture may not be running yet
@@ -174,12 +172,6 @@ async function poll() {
 async function checkNotifications(procs, totals) {
     try {
         const notifConfig = await getNotificationConfig()
-
-        // If display mode is "disabled", skip all notifications
-        if (notifConfig.displayMode === 'disabled') {
-            if (firstPoll) firstPoll = false
-            return
-        }
 
         // New process alert — seed on first poll, fire on subsequent polls
         if (notifConfig.newProcessAlert) {
@@ -291,15 +283,15 @@ async function onTerminate(proc) {
     proc.isTerminating = true
     try {
         await killProcess(proc.pid)
-        processes.value = processes.value.filter((p) => p.exePath !== proc.exePath)
+        processes.value = processes.value.filter(
+            (p) => p.exePath !== proc.exePath,
+        )
     } catch {
         /* ignore — process may already be gone */
     } finally {
         proc.isTerminating = false
     }
 }
-
-
 </script>
 
 <style scoped>

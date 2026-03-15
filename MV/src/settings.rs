@@ -1,8 +1,11 @@
 //! Application settings
 
 use std::collections::HashSet;
+use std::fs;
+use std::path::Path;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum ColorScheme {
     Classic,
     Neon,
@@ -11,7 +14,7 @@ pub enum ColorScheme {
 }
 
 /// Controls how aggressively the beat detector fires.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum BeatSensitivity {
     /// Fires only on strong transients (threshold ×1.8 above rolling mean).
     Low,
@@ -40,7 +43,7 @@ impl BeatSensitivity {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppSettings {
     pub show_settings: bool,
     /// Window opacity used by the transparency slider (0.1 = nearly transparent, 1.0 = opaque).
@@ -55,6 +58,8 @@ pub struct AppSettings {
     pub disabled_plugins: HashSet<String>,
     /// Beat detection sensitivity level.
     pub beat_sensitivity: BeatSensitivity,
+    /// Selected audio input device name.
+    pub selected_device: Option<String>,
 }
 
 impl AppSettings {
@@ -70,6 +75,7 @@ impl AppSettings {
             bass_boost: 1.0,
             disabled_plugins: HashSet::new(),
             beat_sensitivity: BeatSensitivity::Medium,
+            selected_device: None,
         }
     }
 
@@ -80,6 +86,23 @@ impl AppSettings {
             ColorScheme::Pastel  => [0.8, 0.7, 1.0, 1.0],
             ColorScheme::Fire    => [1.0, 0.4, 0.0, 1.0],
         }
+    }
+
+    pub fn save(&self) -> Result<(), Box<dyn std::error::Error>> {
+        let json = serde_json::to_string_pretty(self)?;
+        fs::write("settings.json", json)?;
+        Ok(())
+    }
+
+    pub fn load() -> Self {
+        if Path::new("settings.json").exists() {
+            if let Ok(json) = fs::read_to_string("settings.json") {
+                if let Ok(settings) = serde_json::from_str(&json) {
+                    return settings;
+                }
+            }
+        }
+        Self::new()
     }
 }
 
