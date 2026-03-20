@@ -360,13 +360,16 @@ fn aggregate_daily(raw: &[(u64, u64)], days: usize) -> Vec<(u64, u64)> {
 
 #[tauri::command]
 async fn get_24h_totals(state: State<'_, Arc<AppState>>) -> Result<HourlyPoint, String> {
-    let hourly = state.global_hourly.lock().unwrap();
-    let (dl, ul) = hourly
-        .iter()
-        .fold((0u64, 0u64), |(a, b), &(d, u)| (a + d, b + u));
+    let (dl, ul) = {
+        let hourly = state.global_hourly.lock().unwrap();
+        hourly.iter().fold((0u64, 0u64), |(a, b), &(d, u)| (a + d, b + u))
+    };
+    // Include the current (incomplete) hour for real-time totals
+    let current_dl = state.current_hour_dl.load(Ordering::Relaxed);
+    let current_ul = state.current_hour_ul.load(Ordering::Relaxed);
     Ok(HourlyPoint {
-        download_bytes: dl,
-        upload_bytes: ul,
+        download_bytes: dl.saturating_add(current_dl),
+        upload_bytes: ul.saturating_add(current_ul),
     })
 }
 
@@ -529,6 +532,12 @@ async fn start_windivert_service() -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+async fn exit_app(app: tauri::AppHandle) -> Result<(), String> {
+    app.exit(0);
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Load persisted settings and 24h global history
@@ -651,6 +660,7 @@ pub fn run() {
             check_windivert_status,
             install_windivert,
             start_windivert_service,
+            exit_app,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

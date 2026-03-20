@@ -295,46 +295,56 @@ impl App {
                 .collapsible(false)
                 .frame(egui::Frame::window(&ctx.style()).shadow(egui::epaint::Shadow::NONE))
                 .show(ctx, |ui| {
-                    ui.add(egui::Slider::new(&mut settings_copy.smoothing_factor, 0.01..=0.3).text("Smoothing"));
-                    ui.add(egui::Slider::new(&mut settings_copy.gain, 0.5..=5.0).text("Gain"));
-                    ui.add(egui::Slider::new(&mut settings_copy.bass_boost, 0.0..=2.0).text("Bass Boost"));
-                    ui.add(egui::Slider::new(&mut settings_copy.transparency, 0.1..=1.0).text("Opacity"));
-                    ui.separator();
-                    ui.label("Color Scheme:");
-                    ui.horizontal(|ui| {
-                        ui.selectable_value(&mut settings_copy.color_scheme, ColorScheme::Classic, "Classic");
-                        ui.selectable_value(&mut settings_copy.color_scheme, ColorScheme::Neon,    "Neon");
-                        ui.selectable_value(&mut settings_copy.color_scheme, ColorScheme::Pastel,  "Pastel");
-                        ui.selectable_value(&mut settings_copy.color_scheme, ColorScheme::Fire,    "Fire");
+                    // ── Audio Processing ──────────────────────────────────
+                    ui.collapsing("🎤 Audio Processing", |ui| {
+                        ui.add(egui::Slider::new(&mut settings_copy.smoothing_factor, 0.01..=0.3).text("Smoothing"));
+                        ui.add(egui::Slider::new(&mut settings_copy.gain, 0.5..=5.0).text("Gain"));
+                        ui.add(egui::Slider::new(&mut settings_copy.bass_boost, 0.0..=2.0).text("Bass Boost"));
+                        ui.horizontal(|ui| {
+                            ui.label("Beat Sensitivity:");
+                            ui.selectable_value(&mut settings_copy.beat_sensitivity, BeatSensitivity::Low,    "Low");
+                            ui.selectable_value(&mut settings_copy.beat_sensitivity, BeatSensitivity::Medium, "Medium");
+                            ui.selectable_value(&mut settings_copy.beat_sensitivity, BeatSensitivity::High,   "High");
+                        });
                     });
-                    ui.separator();
-                    ui.label("Beat Detection Sensitivity:");
-                    ui.horizontal(|ui| {
-                        ui.selectable_value(&mut settings_copy.beat_sensitivity, BeatSensitivity::Low,    "Low");
-                        ui.selectable_value(&mut settings_copy.beat_sensitivity, BeatSensitivity::Medium, "Medium");
-                        ui.selectable_value(&mut settings_copy.beat_sensitivity, BeatSensitivity::High,   "High");
+
+                    // ── Visual ────────────────────────────────────────────
+                    ui.collapsing("🎨 Visual", |ui| {
+                        ui.add(egui::Slider::new(&mut settings_copy.transparency, 0.1..=1.0).text("Opacity"));
+                        ui.horizontal(|ui| {
+                            ui.label("Color Scheme:");
+                            ui.selectable_value(&mut settings_copy.color_scheme, ColorScheme::Classic, "Classic");
+                            ui.selectable_value(&mut settings_copy.color_scheme, ColorScheme::Neon,    "Neon");
+                            ui.selectable_value(&mut settings_copy.color_scheme, ColorScheme::Pastel,  "Pastel");
+                            ui.selectable_value(&mut settings_copy.color_scheme, ColorScheme::Fire,    "Fire");
+                        });
                     });
-                    ui.separator();
-                    ui.checkbox(&mut settings_copy.auto_switch_modes, "Auto-switch modes");
-                    if settings_copy.auto_switch_modes {
-                        ui.add(egui::Slider::new(&mut settings_copy.mode_switch_seconds, 5.0..=120.0).text("Switch interval (s)"));
-                    }
-                    ui.separator();
-                    ui.label("Effects:");
-                    for (group_name, names) in &plugin_groups {
-                        ui.collapsing(group_name.as_str(), |ui| {
-                            for name in names {
-                                let mut enabled = !settings_copy.disabled_plugins.contains(name);
-                                if ui.checkbox(&mut enabled, name.as_str()).changed() {
-                                    if enabled {
-                                        settings_copy.disabled_plugins.remove(name);
-                                    } else {
-                                        settings_copy.disabled_plugins.insert(name.clone());
+
+                    // ── Playback ──────────────────────────────────────────
+                    ui.collapsing("▶ Playback", |ui| {
+                        ui.checkbox(&mut settings_copy.auto_switch_modes, "Auto-switch modes");
+                        if settings_copy.auto_switch_modes {
+                            ui.add(egui::Slider::new(&mut settings_copy.mode_switch_seconds, 5.0..=120.0).text("Switch interval (s)"));
+                        }
+                    });
+
+                    // ── Effects ───────────────────────────────────────────
+                    ui.collapsing("✨ Effects", |ui| {
+                        for (group_name, names) in &plugin_groups {
+                            ui.collapsing(group_name.as_str(), |ui| {
+                                for name in names {
+                                    let mut enabled = !settings_copy.disabled_plugins.contains(name);
+                                    if ui.checkbox(&mut enabled, name.as_str()).changed() {
+                                        if enabled {
+                                            settings_copy.disabled_plugins.remove(name);
+                                        } else {
+                                            settings_copy.disabled_plugins.insert(name.clone());
+                                        }
                                     }
                                 }
-                            }
-                        });
-                    }
+                            });
+                        }
+                    });
                 });
 
             let mut pending = self.pending_device_index;
@@ -696,6 +706,8 @@ fn plugin_group(name: &str) -> &'static str {
         "🔮 3D Effects"
     } else if n.contains("waveform") || n.contains("oscilloscope") {
         "🌊 Waveform"
+    } else if n.contains("heatmap") {
+        "🌡 Heatmap"
     } else if n.contains("spectrum") || n.contains("bars") || n.contains("gradient") || n.contains("circular") {
         "🎵 Spectrum"
     } else {
@@ -705,7 +717,7 @@ fn plugin_group(name: &str) -> &'static str {
 
 /// Build an ordered list of `(group_label, sorted_plugin_names)` from a flat name list.
 fn build_plugin_groups(names: &[String]) -> Vec<(String, Vec<String>)> {
-    const ORDER: &[&str] = &["🎵 Spectrum", "🌊 Waveform", "🔮 3D Effects", "✨ Abstract"];
+    const ORDER: &[&str] = &["🎵 Spectrum", "🌡 Heatmap", "🌊 Waveform", "🔮 3D Effects", "✨ Abstract"];
     let mut map: std::collections::HashMap<&'static str, Vec<String>> = std::collections::HashMap::new();
     for name in names {
         let group = plugin_group(name);

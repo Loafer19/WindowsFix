@@ -7,7 +7,6 @@
                 <div>
                     <div class="text-base-content/70 text-sm">24h Download</div>
                     <div class="text-2xl font-bold text-primary">{{ formatBytes(totals.downloadBytes) }}</div>
-                    <div class="text-xs text-base-content/50">completed hours only</div>
                 </div>
             </div>
             <div class="bg-base-200 rounded-lg p-4 flex items-center gap-3">
@@ -15,7 +14,6 @@
                 <div>
                     <div class="text-base-content/70 text-sm">24h Upload</div>
                     <div class="text-2xl font-bold text-info">{{ formatBytes(totals.uploadBytes) }}</div>
-                    <div class="text-xs text-base-content/50">completed hours only</div>
                 </div>
             </div>
             <div class="bg-base-200 rounded-lg p-4 flex items-center gap-3">

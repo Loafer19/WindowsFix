@@ -51,6 +51,8 @@ import ProcessesTab from './components/Tabs/ProcessesTab.vue'
 import { useNetwork } from './composables/useNetwork.js'
 import {
     blockProcess,
+    checkWinDivertStatus,
+    exitApp,
     get24hTotals,
     getNetworkStats,
     getNotificationConfig,
@@ -111,9 +113,26 @@ onMounted(async () => {
     }
     pollInterval = setInterval(poll, 1000)
 
-    // Minimize-to-tray: intercept window close if configured
+    // Check WinDivert status on startup and notify if library is not working
     try {
-        const app = getCurrentWindow().appHandle
+        const wdStatus = await checkWinDivertStatus()
+        if (!wdStatus.libraryExists) {
+            pushNotification({
+                type: 'warning',
+                message: 'WinDivert library is missing. Network monitoring is unavailable. Go to Configs → WinDivert to install.',
+            })
+        } else if (!wdStatus.serviceRunning) {
+            pushNotification({
+                type: 'info',
+                message: 'WinDivert service is not running. Network monitoring may be limited. Go to Configs → WinDivert to start it.',
+            })
+        }
+    } catch {
+        /* ignore — backend may not be fully started */
+    }
+
+    // Intercept window close: hide to tray if configured, otherwise exit
+    try {
         const appWindow = getCurrentWindow()
         await appWindow.onCloseRequested(async (event) => {
             event.preventDefault()
@@ -122,10 +141,10 @@ onMounted(async () => {
                 if (s.minimizeToTray) {
                     await appWindow.hide()
                 } else {
-                    app.exit(0)
+                    await exitApp()
                 }
             } catch {
-                app.exit(0)
+                await exitApp()
             }
         })
     } catch {
