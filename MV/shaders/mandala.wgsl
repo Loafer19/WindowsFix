@@ -79,7 +79,9 @@ fn fs_main(@builtin(position) coord: vec4<f32>) -> @location(0) vec4<f32> {
         let hue = norm_angle + magnitude * 0.18 + uniforms.time * 0.04;
         let sat = 0.80 + uniforms.bass_energy * 0.20;
         let val = clamp(magnitude * pattern * 1.4, 0.0, 1.0);
-        return vec4<f32>(hsv_to_rgb(hue, sat, val), 1.0);
+        let base_col = hsv_to_rgb(hue, sat, val);
+        let tinted = mix(base_col, base_col * uniforms.color.rgb * 1.5, 0.4);
+        return vec4<f32>(clamp(tinted, vec3<f32>(0.0), vec3<f32>(1.0)), 1.0);
     }
 
     // Subtle background – dark spiral hints

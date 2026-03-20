@@ -100,6 +100,24 @@
                     Application behaviour and system integration.
                 </p>
 
+                <!-- App version -->
+                <div class="flex items-center gap-3 flex-wrap mb-2">
+                    <Icon name="info" class="w-5 h-5 text-primary shrink-0" />
+                    <span class="text-sm font-medium">Version</span>
+                    <span class="badge badge-ghost font-mono text-xs">{{ appVersion || '—' }}</span>
+                    <button class="btn btn-xs btn-outline" :disabled="checkingUpdates" @click="checkForUpdates">
+                        <span v-if="checkingUpdates" class="loading loading-spinner loading-xs mr-1"></span>
+                        Check for updates
+                    </button>
+                    <a v-if="updateChecked && updateAvailable" :href="releaseUrl" target="_blank"
+                        class="link link-primary text-sm font-medium">
+                        v{{ latestVersion }} available →
+                    </a>
+                    <span v-if="updateChecked && !updateAvailable" class="text-xs text-success">✓ Up to date</span>
+                </div>
+
+                <div class="divider my-2"></div>
+
                 <!-- Start with Windows -->
                 <div class="form-control">
                     <label class="label cursor-pointer justify-start gap-4">
@@ -223,6 +241,7 @@
 </template>
 
 <script setup>
+import { getVersion } from '@tauri-apps/api/app'
 import { computed, onMounted, reactive, ref } from 'vue'
 import {
     checkWinDivertStatus,
@@ -279,16 +298,25 @@ const installingWindivert = ref(false)
 const limitIndex = ref(0)
 const limitLabel = computed(() => LIMIT_PRESETS[limitIndex.value].label)
 
+const appVersion = ref('')
+const checkingUpdates = ref(false)
+const updateAvailable = ref(false)
+const updateChecked = ref(false)
+const latestVersion = ref('')
+const releaseUrl = ref('https://github.com/Loafer19/WindowsFix/releases/latest')
+
 onMounted(async () => {
     try {
-        const [s, n, w] = await Promise.all([
+        const [s, n, w, ver] = await Promise.all([
             getSettings(),
             getNotificationConfig(),
             checkWinDivertStatus(),
+            getVersion().catch(() => ''),
         ])
         Object.assign(appSettings, s)
         Object.assign(notif, n)
         Object.assign(windivertStatus, w)
+        appVersion.value = ver
         const index = LIMIT_PRESETS.findIndex(
             (p) => p.value === appSettings.globalLimitBps,
         )
@@ -299,6 +327,36 @@ onMounted(async () => {
         /* ignore — backend may not be fully started */
     }
 })
+
+async function checkForUpdates() {
+    checkingUpdates.value = true
+    updateChecked.value = false
+    updateAvailable.value = false
+    try {
+        const res = await fetch('https://api.github.com/repos/Loafer19/WindowsFix/releases/latest')
+        const data = await res.json()
+        const latest = (data.tag_name ?? '').replace(/^v/, '')
+        latestVersion.value = latest
+        releaseUrl.value = data.html_url ?? 'https://github.com/Loafer19/WindowsFix/releases'
+        updateAvailable.value = latest !== '' && compareVersions(latest, appVersion.value) > 0
+        updateChecked.value = true
+    } catch {
+        emit('notification', { type: 'error', message: 'Failed to check for updates' })
+    } finally {
+        checkingUpdates.value = false
+    }
+}
+
+/** Compare two semver strings. Returns >0 if a is newer, 0 if equal, <0 if older. */
+function compareVersions(a, b) {
+    const pa = a.split('.').map(Number)
+    const pb = b.split('.').map(Number)
+    for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+        const diff = (pa[i] ?? 0) - (pb[i] ?? 0)
+        if (diff !== 0) return diff
+    }
+    return 0
+}
 
 async function saveNotif() {
     try {

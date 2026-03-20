@@ -132,6 +132,9 @@ pub fn capture_loop(state: Arc<AppState>) {
             // Check whether we have entered a new hour
             let new_hour = current_unix_hour();
             if new_hour != current_hour {
+                // Reset current-hour atomics before advancing so get_24h_totals stays consistent
+                state.current_hour_dl.store(0, Ordering::Relaxed);
+                state.current_hour_ul.store(0, Ordering::Relaxed);
                 advance_hourly(&state, current_hour, new_hour, &proc_hourly_acc, global_hourly_acc);
                 proc_hourly_acc.clear();
                 global_hourly_acc = (0, 0);
@@ -195,6 +198,13 @@ pub fn capture_loop(state: Arc<AppState>) {
             global_hourly_acc.1 = global_hourly_acc.1.saturating_add(pkt_len);
         } else {
             global_hourly_acc.0 = global_hourly_acc.0.saturating_add(pkt_len);
+        }
+
+        // Update current-hour shared counters for real-time 24h total display
+        if is_outbound {
+            state.current_hour_ul.fetch_add(pkt_len, Ordering::Relaxed);
+        } else {
+            state.current_hour_dl.fetch_add(pkt_len, Ordering::Relaxed);
         }
 
         // Correlate to a PID via the local TCP/UDP port

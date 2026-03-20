@@ -129,6 +129,10 @@ pub struct AppState {
     pub process_hourly: Arc<Mutex<HashMap<String, VecDeque<(u64, u64)>>>>,
     /// Global hourly history: deque of (dl_bytes, ul_bytes) per hour.
     pub global_hourly: Arc<Mutex<VecDeque<(u64, u64)>>>,
+    /// Current (incomplete) hour download bytes — updated on every packet.
+    pub current_hour_dl: Arc<AtomicU64>,
+    /// Current (incomplete) hour upload bytes — updated on every packet.
+    pub current_hour_ul: Arc<AtomicU64>,
     // ── configuration ───────────────────────────────────────────────────────
     pub settings: Arc<Mutex<Settings>>,
     pub notification_config: Arc<Mutex<NotificationConfig>>,
@@ -159,6 +163,8 @@ impl AppState {
             capture_running: Arc::new(AtomicBool::new(false)),
             process_hourly: Arc::new(Mutex::new(process_hourly)),
             global_hourly: Arc::new(Mutex::new(global_hourly)),
+            current_hour_dl: Arc::new(AtomicU64::new(0)),
+            current_hour_ul: Arc::new(AtomicU64::new(0)),
             settings: Arc::new(Mutex::new(settings)),
             notification_config: Arc::new(Mutex::new(notification_config)),
         }

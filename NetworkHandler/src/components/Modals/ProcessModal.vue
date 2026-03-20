@@ -138,13 +138,28 @@ async function loadHistory() {
 
 onMounted(loadHistory)
 
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
 const hourLabels = computed(() => {
     const n = history.value.length
     if (n === 0) return []
-    const unit = selectedPeriod.value === '24h' ? 'h' : 'd'
+    const now = new Date()
+
+    if (selectedPeriod.value === '24h') {
+        return Array.from({ length: n }, (_, i) => {
+            const offset = n - 1 - i
+            if (offset === 0) return 'now'
+            const d = new Date(now.getTime() - offset * 3_600_000)
+            return `${String(d.getHours()).padStart(2, '0')}:00`
+        })
+    }
+
+    const MS_PER_DAY = 86_400_000
     return Array.from({ length: n }, (_, i) => {
         const offset = n - 1 - i
-        return offset === 0 ? 'now' : `-${offset}${unit}`
+        if (offset === 0) return 'today'
+        const d = new Date(now.getTime() - offset * MS_PER_DAY)
+        return `${MONTHS[d.getMonth()]} ${d.getDate()}`
     })
 })
 

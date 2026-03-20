@@ -96,6 +96,10 @@ async function startWinDivertService() {
     return await invoke('start_windivert_service')
 }
 
+async function exitApp() {
+    return await invoke('exit_app')
+}
+
 export {
     getNetworkStats,
     getProcesses,
@@ -116,4 +120,5 @@ export {
     checkWinDivertStatus,
     installWinDivert,
     startWinDivertService,
+    exitApp,
 }

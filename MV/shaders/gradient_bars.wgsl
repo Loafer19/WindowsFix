@@ -84,7 +84,9 @@ fn fs_main(@builtin(position) coord: vec4<f32>) -> @location(0) vec4<f32> {
         // Beat flash: boost overall brightness on beat
         let beat_boost = uniforms.beat_intensity * 0.5;
         let final_col = mixed + vec3<f32>(cap_glow + beat_boost);
-        return vec4<f32>(clamp(final_col, vec3<f32>(0.0), vec3<f32>(1.0)), 1.0);
+        // Tint with color scheme
+        let tinted = mix(final_col, final_col * uniforms.color.rgb * 1.5, 0.4);
+        return vec4<f32>(clamp(tinted, vec3<f32>(0.0), vec3<f32>(1.0)), 1.0);
     }
 
     // Reflection below
