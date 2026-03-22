@@ -1,3 +1,6 @@
+const PI:     f32 = 3.14159265358979;
+const N_ROWS: i32 = 24;   // depth layers
+
 // Wave height for a given row.
 // • Each row shifts the FFT read-head by a per-row offset so every line
 //   samples a slightly different frequency region.

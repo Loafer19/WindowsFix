@@ -1,3 +1,35 @@
+// Hash a 2D coordinate to a pseudo-random float in [0,1)
+fn hash21(p: vec2<f32>) -> f32 {
+    let q = fract(p * vec2<f32>(127.1, 311.7));
+    let r = dot(q, q + 19.19);
+    return fract(r);
+}
+
+// Ripple ring SDF: returns the ring intensity at distance `d` from a droplet centre.
+// `phase` drives the outward expansion, `width` is ring thickness.
+fn ripple_ring(d: f32, phase: f32, width: f32, amplitude: f32) -> f32 {
+    let ring_r = phase * 0.65;                 // expands to ~65% of the cell
+    let diff   = abs(d - ring_r);
+    if diff > width { return 0.0; }
+    let fade = (1.0 - phase) * amplitude;      // fades out as the ring expands
+    let shape = 1.0 - diff / width;
+    return shape * shape * fade;
+}
+
+// Simple water-surface normal based on superposed ripple height field.
+// Returns a perturbed normal for shading.
+fn water_normal(uv: vec2<f32>, t: f32, bass: f32) -> vec3<f32> {
+    let eps = 0.003;
+    // Two sine waves at different directions and speeds to mimic water surface
+    let angle1 = uv.x * 18.0 + t * 1.4 + bass * 2.0;
+    let angle2 = uv.y * 22.0 - t * 1.1 + bass * 1.5;
+    let angle3 = (uv.x + uv.y) * 14.0 + t * 0.8;
+    let h  = sin(angle1) * 0.015 + sin(angle2) * 0.012 + sin(angle3) * 0.008;
+    let hx = cos(angle1) * 18.0 * 0.015 + cos(angle3) * 14.0 * 0.008;
+    let hy = cos(angle2) * 22.0 * 0.012 + cos(angle3) * 14.0 * 0.008;
+    return normalize(vec3<f32>(-hx * eps, -hy * eps, 1.0));
+}
+
 @fragment
 fn fs_main(@builtin(position) coord: vec4<f32>) -> @location(0) vec4<f32> {
     let aspect = uniforms.resolution.x / uniforms.resolution.y;

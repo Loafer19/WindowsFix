@@ -1,3 +1,24 @@
+// Classic "plasma" heatmap gradient: cold → hot
+fn heatmap_color(t: f32) -> vec3<f32> {
+    let v = clamp(t, 0.0, 1.0);
+    var col: vec3<f32>;
+    if v < 0.2 {
+        col = mix(vec3<f32>(0.0, 0.0, 0.08), vec3<f32>(0.0, 0.1, 0.9), v / 0.2);
+    } else if v < 0.4 {
+        col = mix(vec3<f32>(0.0, 0.1, 0.9), vec3<f32>(0.0, 0.85, 0.85), (v - 0.2) / 0.2);
+    } else if v < 0.6 {
+        col = mix(vec3<f32>(0.0, 0.85, 0.85), vec3<f32>(0.0, 0.9, 0.0), (v - 0.4) / 0.2);
+    } else if v < 0.8 {
+        col = mix(vec3<f32>(0.0, 0.9, 0.0), vec3<f32>(1.0, 0.88, 0.0), (v - 0.6) / 0.2);
+    } else if v < 0.95 {
+        col = mix(vec3<f32>(1.0, 0.88, 0.0), vec3<f32>(1.0, 0.08, 0.0), (v - 0.8) / 0.15);
+    } else {
+        col = mix(vec3<f32>(1.0, 0.08, 0.0), vec3<f32>(1.0, 1.0, 1.0), (v - 0.95) / 0.05);
+    }
+    // Blend with user color scheme (50% tint — preserves the heatmap gradient)
+    return mix(col, col * uniforms.color.rgb * 1.6, 0.35);
+}
+
 @fragment
 fn fs_main(@builtin(position) coord: vec4<f32>) -> @location(0) vec4<f32> {
     let x = coord.x / uniforms.resolution.x;

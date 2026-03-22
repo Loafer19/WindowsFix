@@ -58,7 +58,7 @@ pub const SHADER_REGISTRY: &[ShaderInfo] = &[
     ShaderInfo { id: "energy_field",      description: "Electric plasma field that pulses with the beat",        category: ShaderCategory::Abstract,   performance: PerformanceTier::Medium, is_waveform: false },
     ShaderInfo { id: "gradient_bars",     description: "Spectrum bars with a smooth colour gradient",            category: ShaderCategory::Spectrum,   performance: PerformanceTier::Light,  is_waveform: false },
     ShaderInfo { id: "heatmap",           description: "Cold-to-hot thermal colour gradient per frequency",      category: ShaderCategory::Heatmap,    performance: PerformanceTier::Light,  is_waveform: false },
-    ShaderInfo { id: "kaleidoscope",      description: "Mirrored kaleidoscope pattern driven by bass energy",    category: ShaderCategory::Abstract,   performance: PerformanceTier::Medium, is_waveform: false },
+    ShaderInfo { id: "kaleidoscope",      description: "Mirrored kaleidoscope pattern driven by bass energy",    category: ShaderCategory::Spectrum,   performance: PerformanceTier::Medium, is_waveform: false },
     ShaderInfo { id: "mandala",           description: "Rotating mandala pattern with beat highlights",          category: ShaderCategory::Abstract,   performance: PerformanceTier::Medium, is_waveform: false },
     ShaderInfo { id: "neon_pulse",        description: "Neon-glow waveform that pulses bright on every beat",    category: ShaderCategory::Waveform,   performance: PerformanceTier::Light,  is_waveform: true  },
     ShaderInfo { id: "oscilloscope",      description: "Classic X-Y oscilloscope waveform trace",               category: ShaderCategory::Waveform,   performance: PerformanceTier::Light,  is_waveform: true  },
