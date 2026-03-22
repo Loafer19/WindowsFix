@@ -1,87 +1,40 @@
+mod batch_updater;
+pub mod packet_processor;
+
 use std::collections::HashMap;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-
-use netstat2::{get_sockets_info, AddressFamilyFlags, ProtocolFlags, ProtocolSocketInfo};
 
 use windivert::prelude::WinDivertFlags;
 use windivert::WinDivert;
 
-use crate::db;
-use crate::history::{current_unix_hour, HOURLY_BUCKETS};
+use crate::history::current_unix_hour;
+use crate::metrics::Metrics;
 use crate::models::AppState;
-
-type PortPidCache = HashMap<u16, u32>;
+use packet_processor::{exe_path_for_pid, extract_local_port, refresh_port_pid_cache, PortPidCache};
 
 /// Maximum size of an IPv4 or IPv6 packet in bytes (2^16 − 1).
 const MAX_IP_PACKET_SIZE: usize = 65535;
 
-fn refresh_port_pid_cache() -> PortPidCache {
-    let mut cache = HashMap::new();
-    if let Ok(sockets) = get_sockets_info(
-        AddressFamilyFlags::IPV4 | AddressFamilyFlags::IPV6,
-        ProtocolFlags::TCP | ProtocolFlags::UDP,
-    ) {
-        for socket in sockets {
-            let pid = match socket.associated_pids.first() {
-                Some(&p) => p,
-                None => continue,
-            };
-            let local_port = match &socket.protocol_socket_info {
-                ProtocolSocketInfo::Tcp(t) => t.local_port,
-                ProtocolSocketInfo::Udp(u) => u.local_port,
-            };
-            cache.insert(local_port, pid);
-        }
-    }
-    cache
-}
-
-fn exe_path_for_pid(pid: u32) -> String {
-    use windows::Win32::Foundation::CloseHandle;
-    use windows::Win32::System::Threading::{
-        OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_FORMAT,
-        PROCESS_QUERY_LIMITED_INFORMATION,
-    };
-
-    unsafe {
-        let Ok(handle) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) else {
-            return format!("PID {pid}");
-        };
-
-        let mut buf = [0u16; 1024];
-        let mut size = buf.len() as u32;
-        let result = QueryFullProcessImageNameW(
-            handle,
-            PROCESS_NAME_FORMAT(0),
-            windows::core::PWSTR(buf.as_mut_ptr()),
-            &mut size,
-        );
-
-        let _ = CloseHandle(handle);
-
-        if result.is_ok() {
-            String::from_utf16_lossy(&buf[..size as usize])
-        } else {
-            format!("PID {pid}")
-        }
-    }
-}
-
-pub fn capture_loop(state: Arc<AppState>) {
+/// Main packet capture loop. Runs in its own thread, retrying on WinDivert open failure.
+pub fn capture_loop(state: Arc<AppState>, metrics: Arc<Metrics>) {
     let handle = loop {
         match WinDivert::network("ip", 0, WinDivertFlags::new()) {
             Ok(h) => break h,
             Err(e) => {
-                eprintln!("WinDivert open failed: {e}");
+                tracing::warn!("WinDivert open failed: {e}; retrying in 5s");
+                metrics.capture_errors.fetch_add(1, Ordering::Relaxed);
                 std::thread::sleep(Duration::from_secs(5));
             }
         }
     };
 
+    tracing::info!("Capture loop started");
+
     // --- Thread-Local State (No Locks needed for these) ---
     let mut pid_cache: PortPidCache = HashMap::new();
-    let mut local_exe_cache: HashMap<u32, String> = HashMap::new(); // PID -> ExePath
+    let mut local_exe_cache: HashMap<u32, String> = HashMap::new();
     let mut local_blocked_pids = std::collections::HashSet::<u32>::new();
 
     let mut cache_refreshed = Instant::now();
@@ -119,7 +72,9 @@ pub fn capture_loop(state: Arc<AppState>) {
 
                 // Offload disk I/O to background thread
                 std::thread::spawn(move || {
-                    advance_hourly_background(state_clone, old_h, now_hour, proc_snap, glob_snap);
+                    batch_updater::advance_hourly_background(
+                        state_clone, old_h, now_hour, proc_snap, glob_snap,
+                    );
                 });
 
                 proc_hourly_acc.clear();
@@ -141,16 +96,23 @@ pub fn capture_loop(state: Arc<AppState>) {
         // 3. Receive Packet
         let packet = match handle.recv(Some(&mut recv_buf)) {
             Ok(p) => p,
-            Err(_) => continue,
+            Err(e) => {
+                metrics.capture_errors.fetch_add(1, Ordering::Relaxed);
+                tracing::debug!("Packet recv error: {e}");
+                continue;
+            }
         };
 
         let is_outbound = packet.address.outbound();
         let pkt_len = packet.data.len() as u64;
 
+        metrics.bytes_seen.fetch_add(pkt_len, Ordering::Relaxed);
+
         // 4. Core Filtering & Accounting
         if let Some(port) = extract_local_port(&packet.data, is_outbound) {
             if let Some(&pid) = pid_cache.get(&port) {
                 if local_blocked_pids.contains(&pid) {
+                    metrics.packets_dropped.fetch_add(1, Ordering::Relaxed);
                     continue;
                 }
 
@@ -189,9 +151,9 @@ pub fn capture_loop(state: Arc<AppState>) {
                 }
 
                 if !is_outbound {
-                    state.current_hour_dl.fetch_add(pkt_len, std::sync::atomic::Ordering::Relaxed);
+                    state.current_hour_dl.fetch_add(pkt_len, Ordering::Relaxed);
                 } else {
-                    state.current_hour_ul.fetch_add(pkt_len, std::sync::atomic::Ordering::Relaxed);
+                    state.current_hour_ul.fetch_add(pkt_len, Ordering::Relaxed);
                 }
 
                 {
@@ -215,12 +177,14 @@ pub fn capture_loop(state: Arc<AppState>) {
                 }
 
                 // Update Hourly Accumulators
-                let acc = proc_hourly_acc.entry(exe_path.clone()).or_insert((0, 0));
+                let acc = proc_hourly_acc.entry(exe_path).or_insert((0, 0));
                 if is_outbound {
                     acc.1 += pkt_len;
                 } else {
                     acc.0 += pkt_len;
                 }
+
+                metrics.packets_processed.fetch_add(1, Ordering::Relaxed);
             }
         }
 
@@ -232,109 +196,5 @@ pub fn capture_loop(state: Arc<AppState>) {
         }
 
         handle.send(&packet).ok();
-    }
-}
-
-fn advance_hourly_background(
-    state: Arc<AppState>,
-    old_hour: u64,
-    new_hour: u64,
-    proc_acc: HashMap<String, (u64, u64)>,
-    global_acc: (u64, u64),
-) {
-    let hours_elapsed = (new_hour.saturating_sub(old_hour) as usize).min(HOURLY_BUCKETS);
-
-    // 1. Update In-Memory History
-    {
-        let mut ph = state.process_hourly.lock().unwrap();
-        let mut gh = state.global_hourly.lock().unwrap();
-
-        for h in 0..hours_elapsed {
-            let is_last = h == hours_elapsed - 1;
-            let (g_dl, g_ul) = if is_last { global_acc } else { (0, 0) };
-
-            gh.push_back((g_dl, g_ul));
-            if gh.len() > HOURLY_BUCKETS {
-                gh.pop_front();
-            }
-
-            for (exe, deque) in ph.iter_mut() {
-                let val = if is_last {
-                    proc_acc.get(exe).copied().unwrap_or((0, 0))
-                } else {
-                    (0, 0)
-                };
-                deque.push_back(val);
-                if deque.len() > HOURLY_BUCKETS {
-                    deque.pop_front();
-                }
-            }
-        }
-    }
-
-    // 2. Prepare Snapshot for DB
-    let data = {
-        db::AppData {
-            global_hourly: state
-                .global_hourly
-                .lock()
-                .unwrap()
-                .iter()
-                .copied()
-                .collect(),
-            saved_at_hour: new_hour,
-            process_totals: state.process_total_bytes.lock().unwrap().clone(),
-            blocked_exes: state.blocked_exes.lock().unwrap().iter().cloned().collect(),
-            process_hourly: state
-                .process_hourly
-                .lock()
-                .unwrap()
-                .iter()
-                .map(|(k, v)| (k.clone(), v.iter().copied().collect()))
-                .collect(),
-        }
-    };
-
-    if let Err(e) = db::save(&data) {
-        eprintln!("Disk I/O Error: {e}");
-    }
-}
-
-fn extract_local_port(data: &[u8], outbound: bool) -> Option<u16> {
-    if data.is_empty() {
-        return None;
-    }
-
-    let version = data[0] >> 4;
-    let (protocol, payload_offset) = match version {
-        4 => {
-            if data.len() < 20 {
-                return None;
-            }
-            let ihl = (data[0] & 0x0F) as usize * 4;
-            (data[9], ihl)
-        }
-        6 => {
-            if data.len() < 40 {
-                return None;
-            }
-            (data[6], 40) // Fixed header size for IPv6
-        }
-        _ => return None,
-    };
-
-    if data.len() < payload_offset + 4 {
-        return None;
-    }
-    let payload = &data[payload_offset..];
-
-    match protocol {
-        6 | 17 => {
-            // TCP or UDP
-            let src_port = u16::from_be_bytes([payload[0], payload[1]]);
-            let dst_port = u16::from_be_bytes([payload[2], payload[3]]);
-            Some(if outbound { src_port } else { dst_port })
-        }
-        _ => None,
     }
 }

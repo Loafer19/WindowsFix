@@ -99,7 +99,6 @@
 </template>
 
 <script setup>
-import { invoke } from '@tauri-apps/api/core'
 import { computed, ref } from 'vue'
 import { formatBytes, formatSpeed } from '../../composables/useNetwork.js'
 import Button from '../Button.vue'
@@ -110,12 +109,7 @@ const props = defineProps({
     processes: { type: Array, default: () => [] },
 })
 
-const emit = defineEmits([
-    'block-toggle',
-    'terminate',
-    'throttle',
-    'notification',
-])
+const emit = defineEmits(['block-toggle', 'terminate', 'throttle'])
 
 const searchQuery = ref('')
 const sortField = ref('totalDownloadBytes')

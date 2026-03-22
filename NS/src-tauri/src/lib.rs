@@ -1,553 +1,29 @@
 mod capture;
+mod commands;
 mod db;
 mod history;
+mod metrics;
 mod models;
 mod settings;
 
 use std::collections::{HashMap, HashSet, VecDeque};
-
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
-
-use tauri::{Manager, State};
-
-use models::{AppState, HourlyPoint, NetworkStats, NotificationConfig, ProcessInfo, Settings, WinDivertStatus};
-
-
-#[derive(Debug, thiserror::Error, serde::Serialize)]
-pub enum AppError {
-    #[error("IO Error: {0}")]
-    Io(String),
-    #[error("Lock Poisoned: {0}")]
-    Lock(String),
-    #[error("Windows API Error: {0}")]
-    Windows(String),
-    #[error("Invalid Period: {0}")]
-    InvalidPeriod(String),
-}
-
-// Convert common errors to AppError
-impl From<std::io::Error> for AppError {
-    fn from(e: std::io::Error) -> Self { Self::Io(e.to_string()) }
-}
-
-type AppResult<T> = Result<T, AppError>;
-
-// Embedded WinDivert driver file
-static WINDRIVER_SYS: &[u8] = include_bytes!("../drivers/WinDivert64.sys");
-
-/// Look up the cached exe path for `pid`, falling back to a descriptive string.
-fn exe_path_for_pid_cached(pid: u32, state: &AppState) -> String {
-    state
-        .pid_to_exe
-        .lock()
-        .unwrap()
-        .get(&pid)
-        .cloned()
-        .unwrap_or_else(|| format!("PID {pid}"))
-}
-
-/// Persist the full application state to disk (called after blocking changes).
-fn persist_app_data(state: &Arc<AppState>) -> Result<(), String> {
-    let global_hourly: Vec<(u64, u64)> =
-        state.global_hourly.lock().unwrap().iter().copied().collect();
-    let process_hourly: HashMap<String, Vec<(u64, u64)>> = state
-        .process_hourly
-        .lock()
-        .unwrap()
-        .iter()
-        .map(|(k, v)| (k.clone(), v.iter().copied().collect()))
-        .collect();
-    let process_totals = state.process_total_bytes.lock().unwrap().clone();
-    let blocked_exes: Vec<String> =
-        state.blocked_exes.lock().unwrap().iter().cloned().collect();
-
-    db::save(&db::AppData {
-        global_hourly,
-        saved_at_hour: history::current_unix_hour(),
-        process_totals,
-        blocked_exes,
-        process_hourly,
-    })
-}
-
-/// Show a Windows toast notification.
-fn show_windows_notification(title: &str, message: &str) -> Result<(), String> {
-    use windows::core::HSTRING;
-    use windows::UI::Notifications::*;
-    use windows::Data::Xml::Dom::*;
-
-    // Get the toast notification manager
-    let toast_manager = ToastNotificationManager::CreateToastNotifierWithId(&HSTRING::from("NetSentry"))
-        .map_err(|e| format!("Failed to create toast notifier: {:?}", e))?;
-
-    // Create XML document for the toast
-    let xml_doc = XmlDocument::new()
-        .map_err(|e| format!("Failed to create XML document: {:?}", e))?;
-
-    // Define the toast template
-    let toast_xml = format!(
-        r#"<toast>
-            <visual>
-                <binding template="ToastGeneric">
-                    <text>{}</text>
-                    <text>{}</text>
-                </binding>
-            </visual>
-        </toast>"#,
-        title, message
-    );
-
-    xml_doc.LoadXml(&HSTRING::from(toast_xml))
-        .map_err(|e| format!("Failed to load XML: {:?}", e))?;
-
-    // Create and show the toast
-    let toast = ToastNotification::CreateToastNotification(&xml_doc)
-        .map_err(|e| format!("Failed to create toast: {:?}", e))?;
-
-    toast_manager.Show(&toast)
-        .map_err(|e| format!("Failed to show toast: {:?}", e))?;
-
-    Ok(())
-}
-
-#[tauri::command]
-async fn start_capture(state: State<'_, Arc<AppState>>) -> Result<(), String> {
-    let already = state.capture_running.swap(true, Ordering::Relaxed);
-    if already {
-        return Ok(());
-    }
-    let state_clone = Arc::clone(&*state);
-    std::thread::spawn(move || {
-        capture::capture_loop(state_clone);
-    });
-    Ok(())
-}
-
-#[tauri::command]
-async fn stop_capture(state: State<'_, Arc<AppState>>) -> Result<(), String> {
-    state.capture_running.store(false, Ordering::Relaxed);
-    Ok(())
-}
-
-#[tauri::command]
-async fn get_network_stats(state: State<'_, Arc<AppState>>) -> Result<NetworkStats, String> {
-    let w = state.window.lock().unwrap();
-    let elapsed = w.start_time.elapsed().as_secs_f64().max(0.1);
-    let download_bps = ((w.download_bytes as f64 / elapsed).round()) as u64;
-    let upload_bps = ((w.upload_bytes as f64 / elapsed).round()) as u64;
-    Ok(NetworkStats {
-        download_bps,
-        upload_bps,
-    })
-}
-
-#[tauri::command]
-async fn get_processes(state: State<'_, Arc<AppState>>) -> AppResult<Vec<ProcessInfo>> {
-    let pb = state.process_bytes.lock().map_err(|e| AppError::Lock(e.to_string()))?.clone();
-    let ptb = state.process_total_bytes.lock().map_err(|e| AppError::Lock(e.to_string()))?;
-    let pid_to_exe = state.pid_to_exe.lock().map_err(|e| AppError::Lock(e.to_string()))?;
-    let blocked_exes = state.blocked_exes.lock().map_err(|e| AppError::Lock(e.to_string()))?;
-    let limits = state.process_limits.lock().map_err(|e| AppError::Lock(e.to_string()))?;
-
-    let mut list = Vec::with_capacity(ptb.len());
-
-    // Merge persisted totals with live throughput
-    for (exe_path, (dl_total, ul_total)) in ptb.iter() {
-        let name = exe_path.split(['\\', '/']).last().unwrap_or(exe_path).to_string();
-
-        // Find if this exe is currently active (matching by path)
-        let (pid, dl_bps, ul_bps) = pid_to_exe.iter()
-            .find(|(_, path)| *path == exe_path)
-            .map(|(&id, _)| {
-                let bytes = pb.get(&id).copied().unwrap_or((0, 0));
-                (id, bytes.0, bytes.1)
-            })
-            .unwrap_or((0, 0, 0));
-
-        list.push(ProcessInfo {
-            pid,
-            name,
-            exe_path: exe_path.clone(),
-            download_bps: dl_bps,
-            upload_bps: ul_bps,
-            total_download_bytes: *dl_total,
-            total_upload_bytes: *ul_total,
-            blocked: blocked_exes.contains(exe_path),
-            limit_bps: limits.get(&pid).copied().unwrap_or(0),
-        });
-    }
-
-    list.sort_by(|a, b| (b.total_download_bytes + b.total_upload_bytes).cmp(&(a.total_download_bytes + a.total_upload_bytes)));
-    Ok(list)
-}
-#[tauri::command]
-async fn set_global_limit(
-    bytes_per_sec: u64,
-    state: State<'_, Arc<AppState>>,
-) -> Result<(), String> {
-    state.limit_bps.store(bytes_per_sec, Ordering::Relaxed);
-    let mut settings = state.settings.lock().unwrap();
-    settings.global_limit_bps = bytes_per_sec;
-    let notif = state.notification_config.lock().unwrap().clone();
-    settings::save_settings(&settings, &notif)?;
-    Ok(())
-}
-
-#[tauri::command]
-async fn set_process_limit(
-    pid: u32,
-    bytes_per_sec: u64,
-    state: State<'_, Arc<AppState>>,
-) -> Result<(), String> {
-    let mut limits = state.process_limits.lock().unwrap();
-    if bytes_per_sec == 0 {
-        limits.remove(&pid);
-    } else {
-        limits.insert(pid, bytes_per_sec);
-    }
-    Ok(())
-}
-
-#[tauri::command]
-async fn block_process(pid: u32, state: State<'_, Arc<AppState>>) -> Result<(), String> {
-    let exe_path = exe_path_for_pid_cached(pid, &state);
-
-    state.blocked_exes.lock().unwrap().insert(exe_path.clone());
-
-    // Propagate block to all currently-known PIDs with the same exe path
-    let matching_pids: Vec<u32> = {
-        let p2e = state.pid_to_exe.lock().unwrap();
-        p2e.iter()
-            .filter(|(_, v)| **v == exe_path)
-            .map(|(k, _)| *k)
-            .collect()
-    };
-    {
-        let mut bpids = state.blocked_pids.lock().unwrap();
-        for p in matching_pids {
-            bpids.insert(p);
-        }
-    }
-
-    persist_app_data(&state)
-}
-
-#[tauri::command]
-async fn unblock_process(pid: u32, state: State<'_, Arc<AppState>>) -> Result<(), String> {
-    let exe_path = exe_path_for_pid_cached(pid, &state);
-
-    state.blocked_exes.lock().unwrap().remove(&exe_path);
-
-    // Remove block from all currently-known PIDs with the same exe path
-    let matching_pids: Vec<u32> = {
-        let p2e = state.pid_to_exe.lock().unwrap();
-        p2e.iter()
-            .filter(|(_, v)| **v == exe_path)
-            .map(|(k, _)| *k)
-            .collect()
-    };
-    {
-        let mut bpids = state.blocked_pids.lock().unwrap();
-        for p in matching_pids {
-            bpids.remove(&p);
-        }
-    }
-
-    persist_app_data(&state)
-}
-
-#[tauri::command]
-async fn kill_process(pid: u32) -> Result<(), String> {
-    use windows::Win32::Foundation::CloseHandle;
-    use windows::Win32::System::Threading::{OpenProcess, TerminateProcess, PROCESS_TERMINATE};
-
-    unsafe {
-        let handle = OpenProcess(PROCESS_TERMINATE, false, pid)
-            .map_err(|e| format!("Failed to open process {pid}: {e}"))?;
-        let result = TerminateProcess(handle, 1);
-        CloseHandle(handle).ok();
-        result.map_err(|e| format!("Failed to terminate process {pid}: {e}"))
-    }
-}
-
-#[tauri::command]
-async fn get_process_history(
-    exe_path: String,
-    period: String,
-    state: State<'_, Arc<AppState>>,
-) -> Result<Vec<HourlyPoint>, String> {
-    // 1. Consistent Mutex handling with proper error mapping
-    let hourly_lock = state.process_hourly.lock()
-        .map_err(|_| "Failed to lock process_hourly".to_string())?;
-
-    // Get the historical points for this executable
-    let raw_points: Vec<(u64, u64)> = hourly_lock
-        .get(&exe_path)
-        .cloned()
-        .unwrap_or_default()
-        .into();
-
-    // Drop the lock early to avoid holding it during logic processing
-    drop(hourly_lock);
-
-    let current = state.current_process_acc.lock()
-        .map_err(|_| "Failed to lock current_process_acc".to_string())?
-        .get(&exe_path)
-        .copied()
-        .unwrap_or((0, 0));
-
-    let aggregated = match period.as_str() {
-        "24h" | "" => {
-            let mut points: Vec<(u64, u64)> = raw_points.iter()
-                .rev()
-                .take(23)
-                .copied()
-                .collect();
-            points.reverse();
-            points.push(current);
-
-            if points.len() < 24 {
-                let mut padded = vec![(0, 0); 24 - points.len()];
-                padded.append(&mut points);
-                padded
-            } else {
-                points
-            }
-        }
-        "7d" | "30d" => {
-            let days = if period == "7d" { 7 } else { 30 };
-            let mut extended = raw_points;
-            extended.push(current);
-            aggregate_daily(&extended, days)
-        }
-        _ => return Err(format!("Unsupported period: {}", period)),
-    };
-
-    let points = aggregated
-        .into_iter()
-        .map(|(dl, ul)| HourlyPoint {
-            download_bytes: dl,
-            upload_bytes: ul,
-        })
-        .collect();
-
-    Ok(points)
-}
-
-fn aggregate_daily(raw: &[(u64, u64)], days: usize) -> Vec<(u64, u64)> {
-    let mut result: Vec<(u64, u64)> = raw
-        .rchunks(24)
-        .take(days)
-        // Sum the download and upload for each 24-hour chunk
-        .map(|chunk| {
-            chunk.iter().fold((0, 0), |acc, val| (acc.0 + val.0, acc.1 + val.1))
-        })
-        .collect();
-
-    while result.len() < days {
-        result.push((0, 0));
-    }
-
-    result.reverse();
-    result
-}
-
-#[tauri::command]
-async fn get_24h_totals(state: State<'_, Arc<AppState>>) -> Result<HourlyPoint, String> {
-    let (dl, ul) = {
-        let hourly = state.global_hourly.lock().unwrap();
-        hourly.iter().fold((0u64, 0u64), |(a, b), &(d, u)| (a + d, b + u))
-    };
-    // Include the current (incomplete) hour for real-time totals
-    let current_dl = state.current_hour_dl.load(Ordering::Relaxed);
-    let current_ul = state.current_hour_ul.load(Ordering::Relaxed);
-    Ok(HourlyPoint {
-        download_bytes: dl.saturating_add(current_dl),
-        upload_bytes: ul.saturating_add(current_ul),
-    })
-}
-
-#[tauri::command]
-async fn get_settings(state: State<'_, Arc<AppState>>) -> Result<Settings, String> {
-    Ok(state.settings.lock().unwrap().clone())
-}
-
-#[tauri::command]
-async fn set_settings(
-    settings: Settings,
-    state: State<'_, Arc<AppState>>,
-) -> Result<(), String> {
-    settings::set_autorun(settings.start_with_windows)?;
-    let notif = state.notification_config.lock().unwrap().clone();
-    settings::save_settings(&settings, &notif)?;
-    *state.settings.lock().unwrap() = settings;
-    Ok(())
-}
-
-#[tauri::command]
-async fn get_notification_config(
-    state: State<'_, Arc<AppState>>,
-) -> Result<NotificationConfig, String> {
-    Ok(state.notification_config.lock().unwrap().clone())
-}
-
-#[tauri::command]
-async fn set_notification_config(
-    config: NotificationConfig,
-    state: State<'_, Arc<AppState>>,
-) -> Result<(), String> {
-    let s = state.settings.lock().unwrap().clone();
-    settings::save_settings(&s, &config)?;
-    *state.notification_config.lock().unwrap() = config;
-    Ok(())
-}
-
-#[tauri::command]
-async fn show_native_notification(title: String, message: String) -> Result<(), String> {
-    show_windows_notification(&title, &message)
-}
-
-// ---------------------------------------------------------------------------
- // WinDivert management
- // ---------------------------------------------------------------------------
-
-#[tauri::command]
-async fn check_windivert_status() -> Result<WinDivertStatus, String> {
-    use std::path::Path;
-    use windows::Win32::System::Services::*;
-
-    let library_exists = Path::new(r"C:\Windows\System32\drivers\WinDivert64.sys").exists();
-
-    let mut service_exists = false;
-    let mut service_running = false;
-
-    unsafe {
-        let scm = match OpenSCManagerW(None, None, SC_MANAGER_CONNECT) {
-            Ok(h) => h,
-            Err(_) => return Ok(WinDivertStatus { library_exists, service_exists: false, service_running: false }),
-        };
-
-        let service_name = "WinDivert".encode_utf16().chain(std::iter::once(0)).collect::<Vec<u16>>();
-        if let Ok(service) = OpenServiceW(scm, windows::core::PCWSTR::from_raw(service_name.as_ptr()), SERVICE_QUERY_STATUS) {
-            let mut status = SERVICE_STATUS::default();
-            if QueryServiceStatus(service, &mut status).is_ok() {
-                service_exists = true;
-                service_running = status.dwCurrentState == SERVICE_RUNNING;
-            }
-            CloseServiceHandle(service).ok();
-        }
-
-        CloseServiceHandle(scm).ok();
-    }
-
-    Ok(WinDivertStatus { library_exists, service_exists, service_running })
-}
-
-#[tauri::command]
-async fn install_windivert() -> Result<(), String> {
-    use std::fs;
-    use std::path::Path;
-
-    // Write embedded WinDivert driver to system location
-    let drivers_path = Path::new(r"C:\Windows\System32\drivers\WinDivert64.sys");
-    fs::write(drivers_path, WINDRIVER_SYS).map_err(|e| format!("Failed to write WinDivert64.sys to drivers: {}", e))?;
-
-    // Create service using Windows APIs
-    use windows::Win32::System::Services::*;
-
-    unsafe {
-        let scm = OpenSCManagerW(None, None, SC_MANAGER_ALL_ACCESS)
-            .map_err(|e| format!("Failed to open SCM: {:?}", e))?;
-
-        let service_name = "WinDivert".encode_utf16().chain(std::iter::once(0)).collect::<Vec<u16>>();
-        let display_name = "WinDivert Packet Divert Service".encode_utf16().chain(std::iter::once(0)).collect::<Vec<u16>>();
-        let bin_path = r"\SystemRoot\System32\drivers\WinDivert64.sys".encode_utf16().chain(std::iter::once(0)).collect::<Vec<u16>>();
-
-        // Delete existing service if it exists
-        if let Ok(existing_service) = OpenServiceW(scm, windows::core::PCWSTR::from_raw(service_name.as_ptr()), SERVICE_ALL_ACCESS) {
-            // Stop the service first
-            let mut status = SERVICE_STATUS::default();
-            if QueryServiceStatus(existing_service, &mut status).is_ok() && status.dwCurrentState == SERVICE_RUNNING {
-                ControlService(existing_service, SERVICE_CONTROL_STOP, &mut status).ok();
-            }
-            // Delete the service
-            DeleteService(existing_service).ok();
-            CloseServiceHandle(existing_service).ok();
-            // Wait a bit for deletion
-            std::thread::sleep(std::time::Duration::from_millis(500));
-        }
-
-        let service = CreateServiceW(
-            scm,
-            windows::core::PCWSTR::from_raw(service_name.as_ptr()),
-            windows::core::PCWSTR::from_raw(display_name.as_ptr()),
-            SERVICE_START | SERVICE_STOP | SERVICE_QUERY_STATUS,
-            SERVICE_KERNEL_DRIVER,
-            SERVICE_DEMAND_START,
-            SERVICE_ERROR_NORMAL,
-            windows::core::PCWSTR::from_raw(bin_path.as_ptr()),
-            None,
-            None,
-            None,
-            None,
-            None,
-        ).map_err(|e| format!("Failed to create service: {:?}", e))?;
-
-        // Start service
-        StartServiceW(service, Some(&[])).map_err(|e| format!("Failed to start service: {:?}", e))?;
-
-        CloseServiceHandle(service).ok();
-        CloseServiceHandle(scm).ok();
-    }
-
-    Ok(())
-}
-
-#[tauri::command]
-async fn start_windivert_service() -> Result<(), String> {
-    use std::path::Path;
-    use std::process::Command;
-
-    // First check if the driver file exists
-    if !Path::new(r"C:\Windows\System32\drivers\WinDivert64.sys").exists() {
-        return Err("WinDivert64.sys not found in drivers folder. Please reinstall WinDivert.".to_string());
-    }
-
-    // Start service using sc.exe
-    let output = Command::new("sc")
-        .args(&["start", "WinDivert"])
-        .output()
-        .map_err(|e| format!("Failed to run sc start: {}", e))?;
-
-    if !output.status.success() {
-        return Err(format!("sc start failed: {}", String::from_utf8_lossy(&output.stderr)));
-    }
-
-    Ok(())
-}
-
-#[tauri::command]
-async fn clear_all_data(state: State<'_, Arc<AppState>>) -> Result<(), String> {
-    // Clear all persistent data
-    *state.process_total_bytes.lock().unwrap() = HashMap::new();
-    *state.process_hourly.lock().unwrap() = HashMap::new();
-    *state.global_hourly.lock().unwrap() = std::collections::VecDeque::new();
-    state.current_hour_dl.store(0, std::sync::atomic::Ordering::Relaxed);
-    state.current_hour_ul.store(0, std::sync::atomic::Ordering::Relaxed);
-
-    persist_app_data(&state)
-}
-
-#[tauri::command]
-async fn exit_app(app: tauri::AppHandle) -> Result<(), String> {
-    app.exit(0);
-    Ok(())
-}
+use tauri::Manager;
+
+use commands::*;
+use metrics::Metrics;
+use models::AppState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Initialize structured logging
+    let _ = tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::INFO)
+        .try_init();
+
+    tracing::info!("NetSentry starting up");
+
     // Load persisted settings and 24h global history
     let (saved_settings, saved_notif) = settings::load_settings_and_notifications();
     let saved_data = db::load();
@@ -556,9 +32,8 @@ pub fn run() {
     let current_hour = history::current_unix_hour();
     let mut global_hourly: VecDeque<(u64, u64)> = saved_data.global_hourly.into_iter().collect();
     if saved_data.saved_at_hour > 0 {
-        let offline_hours =
-            (current_hour.saturating_sub(saved_data.saved_at_hour) as usize)
-                .min(history::HOURLY_BUCKETS);
+        let offline_hours = (current_hour.saturating_sub(saved_data.saved_at_hour) as usize)
+            .min(history::HOURLY_BUCKETS);
         for _ in 0..offline_hours {
             global_hourly.push_back((0, 0));
             if global_hourly.len() > history::HOURLY_BUCKETS {
@@ -574,9 +49,8 @@ pub fn run() {
         .map(|(k, v)| (k, v.into_iter().collect()))
         .collect();
     if saved_data.saved_at_hour > 0 {
-        let offline_hours =
-            (current_hour.saturating_sub(saved_data.saved_at_hour) as usize)
-                .min(history::HOURLY_BUCKETS);
+        let offline_hours = (current_hour.saturating_sub(saved_data.saved_at_hour) as usize)
+            .min(history::HOURLY_BUCKETS);
         for deque in process_hourly.values_mut() {
             for _ in 0..offline_hours {
                 deque.push_back((0, 0));
@@ -599,8 +73,11 @@ pub fn run() {
         process_hourly,
     ));
 
+    let metrics = Arc::new(Metrics::new());
+
     tauri::Builder::default()
         .manage(app_state)
+        .manage(metrics)
         .setup(|app| {
             use tauri::menu::{Menu, MenuItem};
             use tauri::tray::{MouseButton, TrayIconBuilder, TrayIconEvent};
@@ -660,15 +137,16 @@ pub fn run() {
             kill_process,
             get_process_history,
             get_24h_totals,
+            get_metrics,
             get_settings,
             set_settings,
             get_notification_config,
             set_notification_config,
+            clear_all_data,
             show_native_notification,
             check_windivert_status,
             install_windivert,
             start_windivert_service,
-            clear_all_data,
             exit_app,
         ])
         .run(tauri::generate_context!())

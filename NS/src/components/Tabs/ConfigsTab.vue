@@ -149,10 +149,6 @@
                     </label>
                 </div>
 
-                <div v-if="settingsError" class="alert alert-error mt-3 py-2 text-sm">
-                    {{ settingsError }}
-                </div>
-
                 <div class="divider my-2"></div>
 
                 <div class="flex items-center gap-3 flex-wrap">
@@ -173,7 +169,7 @@
                 <div class="divider my-2"></div>
 
                 <div class="flex items-center gap-3">
-                    <Button class="btn btn-error btn-sm" @click="clearAllData">
+                    <Button class="btn btn-error btn-sm" @clicked="clearAllData">
                         Clear All Data
                     </Button>
                 </div>
@@ -235,21 +231,13 @@
 
 <script setup>
 import { getVersion } from '@tauri-apps/api/app'
-import { invoke } from '@tauri-apps/api/core'
 import { computed, onMounted, reactive, ref } from 'vue'
-import {
-    checkWinDivertStatus,
-    getNotificationConfig,
-    getSettings,
-    installWinDivert,
-    setGlobalLimit,
-    setNotificationConfig,
-    setSettings,
-    startWinDivertService,
-} from '../../services/api.js'
+import { useToast } from '../../composables/useToast.js'
+import { rustService } from '../../services/rust.js'
+import Button from '../Button.vue'
 import Icon from '../Icon.vue'
 
-const emit = defineEmits(['notification'])
+const { success: showSuccess, error: showError } = useToast()
 
 const LIMIT_PRESETS = Object.freeze([
     { value: 0, label: 'Unlimited' },
@@ -286,7 +274,6 @@ const windivertStatus = reactive({
 })
 
 const savingSettings = ref(false)
-const settingsError = ref('')
 const installingWindivert = ref(false)
 
 const limitIndex = ref(0)
@@ -302,14 +289,14 @@ const releaseUrl = ref('https://github.com/Loafer19/WindowsFix/releases/latest')
 onMounted(async () => {
     try {
         const [s, n, w, ver] = await Promise.all([
-            getSettings(),
-            getNotificationConfig(),
-            checkWinDivertStatus(),
+            rustService.getSettings(),
+            rustService.getNotificationConfig(),
+            rustService.checkWinDivertStatus(),
             getVersion().catch(() => ''),
         ])
-        Object.assign(appSettings, s)
-        Object.assign(notif, n)
-        Object.assign(windivertStatus, w)
+        if (s) Object.assign(appSettings, s)
+        if (n) Object.assign(notif, n)
+        if (w) Object.assign(windivertStatus, w)
         appVersion.value = ver
         const index = LIMIT_PRESETS.findIndex(
             (p) => p.value === appSettings.globalLimitBps,
@@ -337,10 +324,7 @@ async function checkForUpdates() {
             latest !== '' && compareVersions(latest, appVersion.value) > 0
         updateChecked.value = true
     } catch {
-        emit('notification', {
-            type: 'error',
-            message: 'Failed to check for updates',
-        })
+        showError('Failed to check for updates')
     } finally {
         checkingUpdates.value = false
     }
@@ -359,31 +343,19 @@ function compareVersions(a, b) {
 
 async function saveNotif() {
     try {
-        await setNotificationConfig({ ...notif })
-        emit('notification', {
-            type: 'success',
-            message: 'Notification settings updated',
-        })
+        await rustService.setNotificationConfig({ ...notif })
+        showSuccess('Notification settings updated')
     } catch {
-        emit('notification', {
-            type: 'error',
-            message: 'Failed to update notification settings',
-        })
+        // Error toast already shown by rustService
     }
 }
 
 async function saveGlobalLimit(bytesPerSec) {
     try {
-        await setGlobalLimit(bytesPerSec)
-        emit('notification', {
-            type: 'success',
-            message: 'Global speed limit updated',
-        })
+        await rustService.setGlobalLimit(bytesPerSec)
+        showSuccess('Global speed limit updated')
     } catch {
-        emit('notification', {
-            type: 'error',
-            message: 'Failed to update global speed limit',
-        })
+        // Error toast already shown by rustService
     }
 }
 
@@ -396,19 +368,11 @@ function onLimitChange(e) {
 
 async function saveAppSettings() {
     savingSettings.value = true
-    settingsError.value = ''
     try {
-        await setSettings({ ...appSettings })
-        emit('notification', {
-            type: 'success',
-            message: 'Application settings updated',
-        })
-    } catch (e) {
-        settingsError.value = String(e)
-        emit('notification', {
-            type: 'error',
-            message: 'Failed to update application settings',
-        })
+        await rustService.setSettings({ ...appSettings })
+        showSuccess('Application settings updated')
+    } catch {
+        // Error toast already shown by rustService
     } finally {
         savingSettings.value = false
     }
@@ -417,18 +381,12 @@ async function saveAppSettings() {
 async function installWindivertHandler() {
     installingWindivert.value = true
     try {
-        await installWinDivert()
-        emit('notification', {
-            type: 'success',
-            message: 'WinDivert installed successfully',
-        })
-        const status = await checkWinDivertStatus()
-        Object.assign(windivertStatus, status)
-    } catch (e) {
-        emit('notification', {
-            type: 'error',
-            message: `Failed to install WinDivert: ${e}`,
-        })
+        await rustService.installWinDivert()
+        showSuccess('WinDivert installed successfully')
+        const status = await rustService.checkWinDivertStatus()
+        if (status) Object.assign(windivertStatus, status)
+    } catch {
+        // Error toast already shown by rustService
     } finally {
         installingWindivert.value = false
     }
@@ -437,38 +395,25 @@ async function installWindivertHandler() {
 async function startWindivertServiceHandler() {
     installingWindivert.value = true
     try {
-        await startWinDivertService()
-        emit('notification', {
-            type: 'success',
-            message: 'WinDivert service started successfully',
-        })
-        const status = await checkWinDivertStatus()
-        Object.assign(windivertStatus, status)
-    } catch (e) {
-        emit('notification', {
-            type: 'error',
-            message: `Failed to start WinDivert service: ${e}`,
-        })
+        await rustService.startWinDivertService()
+        showSuccess('WinDivert service started successfully')
+        const status = await rustService.checkWinDivertStatus()
+        if (status) Object.assign(windivertStatus, status)
+    } catch {
+        // Error toast already shown by rustService
     } finally {
         installingWindivert.value = false
     }
 }
-    async function clearAllData() {
-        if (confirm(
-            'Are you sure you want to clear all saved data?'
-        )) {
-            try {
-                await invoke('clear_all_data')
-                emit('notification', {
-                    type: 'success',
-                    message: 'All data cleared successfully'
-                })
-            } catch (e) {
-                emit('notification', {
-                    type: 'error',
-                    message: 'Failed to clear data: ' + e
-                })
-            }
+
+async function clearAllData() {
+    if (confirm('Are you sure you want to clear all saved data?')) {
+        try {
+            await rustService.clearAllData()
+            showSuccess('All data cleared successfully')
+        } catch {
+            // Error toast already shown by rustService
         }
     }
+}
 </script>
