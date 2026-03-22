@@ -78,7 +78,7 @@ const captureError = ref(false)
 const totals24h = ref({ downloadBytes: 0, uploadBytes: 0 })
 
 const { notifications, warning: warnToast, dismiss } = useToast()
-const { processes, update: updateProcesses } = useProcessManagement()
+const { processes, update: updateProcesses, setLimit, toggleBlock, terminate } = useProcessManagement()
 const { downloadHistory, uploadHistory, labels, pushStats } = useNetwork()
 
 const notifFiredDl = ref(false)
@@ -220,42 +220,15 @@ async function checkNotifications(procs, totals) {
 }
 
 async function onThrottle({ proc, bps }) {
-    try {
-        await rustService.setProcessLimit(proc.pid, bps)
-        const found = processes.value.find((p) => p.exePath === proc.exePath)
-        if (found) found.limitBps = bps
-    } catch {}
+    await setLimit(proc.pid, proc.exePath, bps)
 }
 
 async function onBlockToggle(proc) {
-    proc.isPending = true
-    try {
-        if (proc.blocked) {
-            await rustService.unblockProcess(proc.pid)
-            proc.blocked = false
-        } else {
-            await rustService.blockProcess(proc.pid)
-            proc.blocked = true
-        }
-    } catch {
-        // Error toast already shown by rustService
-    } finally {
-        proc.isPending = false
-    }
+    await toggleBlock(proc)
 }
 
 async function onTerminate(proc) {
-    proc.isTerminating = true
-    try {
-        await rustService.killProcess(proc.pid)
-        processes.value = processes.value.filter(
-            (p) => p.exePath !== proc.exePath,
-        )
-    } catch {
-        // Error toast already shown by rustService
-    } finally {
-        proc.isTerminating = false
-    }
+    await terminate(proc)
 }
 </script>
 

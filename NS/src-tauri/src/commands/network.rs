@@ -7,6 +7,11 @@ use crate::capture;
 use crate::metrics::{Metrics, MetricsSnapshot};
 use crate::models::{AppState, HourlyPoint, NetworkStats};
 
+/// Number of historical hourly points to include in the 24h view.
+/// One slot is reserved for the current (incomplete) hour.
+const HISTORY_HOURS: usize = 24;
+const HISTORY_HOURS_PAST: usize = HISTORY_HOURS - 1;
+
 #[tauri::command]
 pub async fn start_capture(
     state: State<'_, Arc<AppState>>,
@@ -88,12 +93,12 @@ pub async fn get_process_history(
     let aggregated = match period.as_str() {
         "24h" | "" => {
             let mut points: Vec<(u64, u64)> =
-                raw_points.iter().rev().take(23).copied().collect();
+                raw_points.iter().rev().take(HISTORY_HOURS_PAST).copied().collect();
             points.reverse();
             points.push(current);
 
-            if points.len() < 24 {
-                let mut padded = vec![(0, 0); 24 - points.len()];
+            if points.len() < HISTORY_HOURS {
+                let mut padded = vec![(0, 0); HISTORY_HOURS - points.len()];
                 padded.append(&mut points);
                 padded
             } else {
