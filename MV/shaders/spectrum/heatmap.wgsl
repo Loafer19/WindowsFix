@@ -1,38 +1,3 @@
-// Heatmap – frequency spectrum rendered as a cold-to-hot color gradient.
-// Each frequency column is independently colored based on its magnitude:
-// silent = deep blue → cyan → green → yellow → red → white (max energy).
-// The color_scheme uniform tints the output so the user's palette is reflected.
-
-struct Uniforms {
-    color: vec4<f32>,
-    intensity: f32,
-    padding1: f32,
-    resolution: vec2<f32>,
-    mode: u32,
-    padding3a: u32,
-    padding3b: u32,
-    padding3c: u32,
-    padding2: vec3<u32>,
-    time: f32,
-    bass_energy: f32,
-    smoothing_factor: f32,
-    gain: f32,
-    beat_intensity: f32,
-};
-
-@group(0) @binding(0) var<uniform> uniforms: Uniforms;
-@group(0) @binding(1) var<storage, read> data: array<f32>;
-
-@vertex
-fn vs_main(@builtin(vertex_index) idx: u32) -> @builtin(position) vec4<f32> {
-    var pos = array<vec2<f32>, 3>(
-        vec2<f32>(-1.0, -1.0),
-        vec2<f32>( 3.0, -1.0),
-        vec2<f32>(-1.0,  3.0),
-    );
-    return vec4<f32>(pos[idx], 0.0, 1.0);
-}
-
 // Classic "plasma" heatmap gradient: cold → hot
 fn heatmap_color(t: f32) -> vec3<f32> {
     let v = clamp(t, 0.0, 1.0);

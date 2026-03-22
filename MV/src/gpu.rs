@@ -35,6 +35,11 @@ pub struct GpuResources {
     energy_history: Vec<f32>,
     /// Instantaneous beat intensity that peaks on beat and decays each frame.
     pub beat_intensity: f32,
+    /// Pre-allocated complex buffer reused every FFT call to avoid per-frame heap allocation.
+    fft_complex_buf: Vec<Complex<f32>>,
+    /// Cached FFT planner; plans are memoized internally so reusing the planner
+    /// avoids redundant algorithm selection on every call.
+    fft_planner: FftPlanner<f32>,
 }
 
 impl GpuResources {
@@ -126,6 +131,8 @@ impl GpuResources {
             history_frame_counter: 0,
             energy_history: vec![0.0f32; BEAT_HISTORY_SIZE],
             beat_intensity: 0.0,
+            fft_complex_buf: vec![Complex::new(0.0, 0.0); SAMPLE_SIZE],
+            fft_planner: FftPlanner::new(),
         })
     }
 
@@ -459,11 +466,20 @@ impl GpuResources {
         self.queue.write_buffer(&self.fft_buffer, 0, bytemuck::cast_slice(&data_to_write));
     }
 
-    fn compute_fft(&self, audio_data: &[f32]) -> Vec<f32> {
-        let mut buffer: Vec<Complex<f32>> = audio_data.iter().map(|&x| Complex::new(x, 0.0)).collect();
-        let fft = FftPlanner::new().plan_fft_forward(audio_data.len());
-        fft.process(&mut buffer);
-        buffer[0..audio_data.len() / 2].iter().map(|c| c.norm()).collect()
+    /// Compute the magnitude spectrum of `audio_data` using the pre-allocated
+    /// complex buffer and cached FFT planner, avoiding per-call heap allocations.
+    fn compute_fft(&mut self, audio_data: &[f32]) -> Vec<f32> {
+        let n = audio_data.len();
+        // Resize the reusable buffer only when the input length changes (rare).
+        if self.fft_complex_buf.len() != n {
+            self.fft_complex_buf.resize(n, Complex::new(0.0, 0.0));
+        }
+        for (dst, &src) in self.fft_complex_buf.iter_mut().zip(audio_data.iter()) {
+            *dst = Complex::new(src, 0.0);
+        }
+        let fft = self.fft_planner.plan_fft_forward(n);
+        fft.process(&mut self.fft_complex_buf);
+        self.fft_complex_buf[0..n / 2].iter().map(|c| c.norm()).collect()
     }
 
     pub fn render(

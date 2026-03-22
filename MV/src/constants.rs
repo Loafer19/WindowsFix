@@ -37,6 +37,15 @@ pub const DEFAULT_TRANSPARENCY: u8 = 150;
 /// Transparency adjustment step (~10%)
 pub const TRANSPARENCY_STEP: u8 = 25;
 
+/// Minimum alpha value for the transparent-mode window (10% opaque).
+/// Prevents the window from becoming completely invisible.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+pub const MIN_TRANSPARENCY_ALPHA: u8 = 25;
+
+/// Maximum alpha value – fully opaque (255/255 = 100%).
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+pub const MAX_TRANSPARENCY_ALPHA: u8 = 255;
+
 /// Number of waveform history snapshots to keep.
 pub const WAVEFORM_HISTORY_SIZE: usize = 64;
 

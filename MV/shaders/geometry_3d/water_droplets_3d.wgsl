@@ -1,38 +1,3 @@
-// Water Droplets 3D – simulates raindrops landing on a reflective surface.
-// The "3D" effect uses a pseudo-isometric top-down view with Blinn-Phong
-// shading and circular ripple rings driven by audio frequency bands.
-// Beat detection spawns a new impact wave each time a bass hit occurs.
-
-struct Uniforms {
-    color: vec4<f32>,
-    intensity: f32,
-    padding1: f32,
-    resolution: vec2<f32>,
-    mode: u32,
-    padding3a: u32,
-    padding3b: u32,
-    padding3c: u32,
-    padding2: vec3<u32>,
-    time: f32,
-    bass_energy: f32,
-    smoothing_factor: f32,
-    gain: f32,
-    beat_intensity: f32,
-};
-
-@group(0) @binding(0) var<uniform> uniforms: Uniforms;
-@group(0) @binding(1) var<storage, read> data: array<f32>;
-
-@vertex
-fn vs_main(@builtin(vertex_index) idx: u32) -> @builtin(position) vec4<f32> {
-    var pos = array<vec2<f32>, 3>(
-        vec2<f32>(-1.0, -1.0),
-        vec2<f32>( 3.0, -1.0),
-        vec2<f32>(-1.0,  3.0),
-    );
-    return vec4<f32>(pos[idx], 0.0, 1.0);
-}
-
 // Hash a 2D coordinate to a pseudo-random float in [0,1)
 fn hash21(p: vec2<f32>) -> f32 {
     let q = fract(p * vec2<f32>(127.1, 311.7));

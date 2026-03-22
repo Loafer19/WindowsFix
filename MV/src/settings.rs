@@ -97,8 +97,19 @@ impl AppSettings {
     pub fn load() -> Self {
         if Path::new("settings.json").exists() {
             if let Ok(json) = fs::read_to_string("settings.json") {
-                if let Ok(settings) = serde_json::from_str(&json) {
-                    return settings;
+                match serde_json::from_str::<Self>(&json) {
+                    Ok(mut s) => {
+                        // Clamp all numeric fields to valid ranges so a corrupted
+                        // or hand-edited settings file cannot cause panics or
+                        // unexpected behaviour at runtime.
+                        s.transparency = s.transparency.clamp(0.1, 1.0);
+                        s.gain = s.gain.clamp(0.5, 5.0);
+                        s.smoothing_factor = s.smoothing_factor.clamp(0.01, 0.3);
+                        s.bass_boost = s.bass_boost.clamp(0.0, 2.0);
+                        s.mode_switch_seconds = s.mode_switch_seconds.clamp(5.0, 120.0);
+                        return s;
+                    }
+                    Err(e) => eprintln!("Warning: failed to parse settings.json: {e}. Using defaults."),
                 }
             }
         }
