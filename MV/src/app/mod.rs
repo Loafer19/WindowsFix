@@ -169,18 +169,9 @@ impl App {
 // ──────────────────────────────────────────────────────────────────────────────
 
 fn plugin_group(name: &str) -> &'static str {
-    let n = name.to_lowercase();
-    if n.ends_with("_3d") || n.contains("3d") {
-        "🔮 3D Effects"
-    } else if n.contains("waveform") || n.contains("oscilloscope") || n.contains("neon_pulse") {
-        "🌊 Waveform"
-    } else if n.contains("heatmap") {
-        "🌡 Heatmap"
-    } else if n.contains("spectrum") || n.contains("bars") || n.contains("gradient") || n.contains("circular") || n.contains("kaleidoscope") {
-        "🎵 Spectrum"
-    } else {
-        "✨ Abstract"
-    }
+    crate::plugin::shader_info(name)
+        .map(|info| info.category.label())
+        .unwrap_or("✨ Abstract")
 }
 
 pub(crate) fn build_plugin_groups(names: &[String]) -> Vec<(String, Vec<String>)> {
