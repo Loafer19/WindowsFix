@@ -10,7 +10,7 @@
                 </label>
             </div>
 
-            <div v-if="error" class="alert alert-error mb-6">
+            <div v-if="captureError" class="alert alert-error mb-6">
                 <Icon name="alarmWarning" />
                 <h3 class="font-bold">Failed to start packet capture</h3>
                 <div class="text-xs">Ensure the application is running as Administrator.</div>
@@ -21,7 +21,7 @@
                     :class="`alert alert-${n.type} shadow-lg py-2 px-4 text-sm flex items-center gap-2`">
                     <Icon name="alarmWarning" class="w-4 h-4 shrink-0" />
                     <span>{{ n.message }}</span>
-                    <Button class="btn btn-ghost btn-xs btn-square ml-auto" @clicked="dismissNotification(n.id)">
+                    <Button class="btn btn-ghost btn-xs btn-square ml-auto" @clicked="dismiss(n.id)">
                         <Icon name="close" class="w-3 h-3" />
                     </Button>
                 </div>
@@ -31,8 +31,7 @@
                 <div class="card-body">
                     <component :is="activeTab" :download-history="downloadHistory" :upload-history="uploadHistory"
                         :labels="labels" :processes="processes" :totals="totals24h" @block-toggle="onBlockToggle"
-                        @throttle="onThrottle" @terminate="onTerminate"
-                        @notification="onNotification" />
+                        @throttle="onThrottle" @terminate="onTerminate" />
                 </div>
             </div>
 
@@ -49,22 +48,9 @@ import ConfigsTab from './components/Tabs/ConfigsTab.vue'
 import DashboardTab from './components/Tabs/DashboardTab.vue'
 import ProcessesTab from './components/Tabs/ProcessesTab.vue'
 import { useNetwork } from './composables/useNetwork.js'
-import {
-    blockProcess,
-    checkWinDivertStatus,
-    exitApp,
-    get24hTotals,
-    getNetworkStats,
-    getNotificationConfig,
-    getProcesses,
-    getSettings,
-    killProcess,
-    setProcessLimit,
-    showNativeNotification,
-    startCapture,
-    stopCapture,
-    unblockProcess,
-} from './services/api.js'
+import { useProcessManagement } from './composables/useProcessManagement.js'
+import { useToast } from './composables/useToast.js'
+import { rustService } from './services/rust.js'
 
 const tabs = ref([
     {
@@ -88,43 +74,38 @@ const tabs = ref([
 ])
 
 const activeTab = ref(markRaw(DashboardTab))
-const error = ref(false)
-const processes = ref([])
+const captureError = ref(false)
 const totals24h = ref({ downloadBytes: 0, uploadBytes: 0 })
 
-const notifications = ref([])
-let nextNotifId = 0
+const { notifications, warning: warnToast, dismiss } = useToast()
+const { processes, update: updateProcesses, setLimit, toggleBlock, terminate } = useProcessManagement()
+const { downloadHistory, uploadHistory, labels, pushStats } = useNetwork()
+
 const notifFiredDl = ref(false)
 const notifFiredUl = ref(false)
 const seenExes = new Set()
 let firstPoll = true
 
-const { downloadHistory, uploadHistory, labels, pushStats } = useNetwork()
-
 let pollInterval = null
 
 onMounted(async () => {
     try {
-        await startCapture()
+        await rustService.startCapture()
     } catch {
-        error.value = true
+        captureError.value = true
     }
     pollInterval = setInterval(poll, 1000)
 
     try {
-        const wdStatus = await checkWinDivertStatus()
+        const wdStatus = await rustService.checkWinDivertStatus()
         if (!wdStatus.libraryExists) {
-            pushNotification({
-                type: 'warning',
-                message:
-                    'WinDivert library is missing. Network monitoring is unavailable. Go to Configs → WinDivert to install.',
-            })
+            warnToast(
+                'WinDivert library is missing. Network monitoring is unavailable. Go to Configs → WinDivert to install.',
+            )
         } else if (!wdStatus.serviceRunning) {
-            pushNotification({
-                type: 'info',
-                message:
-                    'WinDivert service is not running. Network monitoring may be limited. Go to Configs → WinDivert to start it.',
-            })
+            warnToast(
+                'WinDivert service is not running. Network monitoring may be limited. Go to Configs → WinDivert to start it.',
+            )
         }
     } catch {}
 
@@ -133,14 +114,14 @@ onMounted(async () => {
         await appWindow.onCloseRequested(async (event) => {
             event.preventDefault()
             try {
-                const s = await getSettings()
-                if (s.minimizeToTray) {
+                const s = await rustService.getSettings()
+                if (s?.minimizeToTray) {
                     await appWindow.hide()
                 } else {
-                    await exitApp()
+                    await rustService.exitApp()
                 }
             } catch {
-                await exitApp()
+                await rustService.exitApp()
             }
         })
     } catch {}
@@ -149,37 +130,30 @@ onMounted(async () => {
 onUnmounted(async () => {
     clearInterval(pollInterval)
     try {
-        await stopCapture()
+        await rustService.stopCapture()
     } catch {}
 })
 
 async function poll() {
     try {
         const [stats, procs, totals] = await Promise.all([
-            getNetworkStats(),
-            getProcesses(),
-            get24hTotals(),
+            rustService.getNetworkStats(),
+            rustService.getProcesses(),
+            rustService.get24hTotals(),
         ])
-        pushStats(stats.downloadBps, stats.uploadBps)
-        totals24h.value = totals
-
-        processes.value = procs.map((p) => {
-            const existing =
-                processes.value.find((e) => e.exePath === p.exePath) ?? {}
-            return {
-                ...p,
-                isPending: existing.isPending ?? false,
-                isTerminating: existing.isTerminating ?? false,
-            }
-        })
-
-        await checkNotifications(procs, totals)
+        if (stats) pushStats(stats.downloadBps, stats.uploadBps)
+        if (totals) totals24h.value = totals
+        if (procs) {
+            updateProcesses(procs)
+            await checkNotifications(procs, totals)
+        }
     } catch {}
 }
 
 async function checkNotifications(procs, totals) {
     try {
-        const notifConfig = await getNotificationConfig()
+        const notifConfig = await rustService.getNotificationConfig()
+        if (!notifConfig) return
 
         if (notifConfig.newProcessAlert) {
             if (firstPoll) {
@@ -191,12 +165,14 @@ async function checkNotifications(procs, totals) {
                         seenExes.add(p.exePath)
                         const message = `New process: ${p.name}`
                         if (notifConfig.displayMode === 'app') {
-                            pushNotification({
-                                type: 'warning',
-                                message,
-                            })
+                            warnToast(message)
                         } else if (notifConfig.displayMode === 'native') {
-                            showNativeNotification('NetSentry Alert', message)
+                            rustService
+                                .showNativeNotification(
+                                    'NetSentry Alert',
+                                    message,
+                                )
+                                .catch(() => {})
                         }
                     }
                 }
@@ -204,6 +180,8 @@ async function checkNotifications(procs, totals) {
         } else if (firstPoll) {
             firstPoll = false
         }
+
+        if (!totals) return
 
         const dlGb = totals.downloadBytes / 1_073_741_824
         if (
@@ -214,12 +192,11 @@ async function checkNotifications(procs, totals) {
             notifFiredDl.value = true
             const message = `24h download reached ${dlGb.toFixed(2)} GB (threshold: ${notifConfig.downloadThresholdGb} GB)`
             if (notifConfig.displayMode === 'app') {
-                pushNotification({
-                    type: 'warning',
-                    message,
-                })
+                warnToast(message)
             } else if (notifConfig.displayMode === 'native') {
-                showNativeNotification('NetSentry Alert', message)
+                rustService
+                    .showNativeNotification('NetSentry Alert', message)
+                    .catch(() => {})
             }
         }
 
@@ -232,65 +209,26 @@ async function checkNotifications(procs, totals) {
             notifFiredUl.value = true
             const message = `24h upload reached ${ulGb.toFixed(2)} GB (threshold: ${notifConfig.uploadThresholdGb} GB)`
             if (notifConfig.displayMode === 'app') {
-                pushNotification({
-                    type: 'warning',
-                    message,
-                })
+                warnToast(message)
             } else if (notifConfig.displayMode === 'native') {
-                showNativeNotification('NetSentry Alert', message)
+                rustService
+                    .showNativeNotification('NetSentry Alert', message)
+                    .catch(() => {})
             }
         }
     } catch {}
 }
 
-function pushNotification(notification) {
-    const id = nextNotifId++
-    notifications.value.push({ id, ...notification })
-    setTimeout(() => dismissNotification(id), 8000)
-}
-
-function dismissNotification(id) {
-    notifications.value = notifications.value.filter((n) => n.id !== id)
-}
-
-function onNotification(notification) {
-    pushNotification(notification)
-}
-
 async function onThrottle({ proc, bps }) {
-    try {
-        await setProcessLimit(proc.pid, bps)
-        const found = processes.value.find((p) => p.exePath === proc.exePath)
-        if (found) found.limitBps = bps
-    } catch {}
+    await setLimit(proc.pid, proc.exePath, bps)
 }
 
 async function onBlockToggle(proc) {
-    proc.isPending = true
-    try {
-        if (proc.blocked) {
-            await unblockProcess(proc.pid)
-            proc.blocked = false
-        } else {
-            await blockProcess(proc.pid)
-            proc.blocked = true
-        }
-    } finally {
-        proc.isPending = false
-    }
+    await toggleBlock(proc)
 }
 
 async function onTerminate(proc) {
-    proc.isTerminating = true
-    try {
-        await killProcess(proc.pid)
-        processes.value = processes.value.filter(
-            (p) => p.exePath !== proc.exePath,
-        )
-    } catch {
-    } finally {
-        proc.isTerminating = false
-    }
+    await terminate(proc)
 }
 </script>
 

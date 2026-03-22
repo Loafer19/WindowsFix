@@ -16,22 +16,10 @@
             </div>
 
             <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
-                <div class="bg-base-200 rounded-lg p-3 text-center">
-                    <div class="text-xs text-base-content/60 mb-1">Download</div>
-                    <div class="font-bold text-primary font-mono">{{ formatSpeed(proc.downloadBps) }}</div>
-                </div>
-                <div class="bg-base-200 rounded-lg p-3 text-center">
-                    <div class="text-xs text-base-content/60 mb-1">Upload</div>
-                    <div class="font-bold text-info font-mono">{{ formatSpeed(proc.uploadBps) }}</div>
-                </div>
-                <div class="bg-base-200 rounded-lg p-3 text-center">
-                    <div class="text-xs text-base-content/60 mb-1">Total DL</div>
-                    <div class="font-bold font-mono text-sm text-primary">{{ formatBytes(proc.totalDownloadBytes) }}</div>
-                </div>
-                <div class="bg-base-200 rounded-lg p-3 text-center">
-                    <div class="text-xs text-base-content/60 mb-1">Total UL</div>
-                    <div class="font-bold font-mono text-sm text-info">{{ formatBytes(proc.totalUploadBytes) }}</div>
-                </div>
+                <StatCard icon="arrowDownCircle" label="Download" :value="formatSpeed(proc.downloadBps)" color="primary" size="lg" />
+                <StatCard icon="arrowUpCircle" label="Upload" :value="formatSpeed(proc.uploadBps)" color="info" size="lg" />
+                <StatCard icon="arrowDownCircle" label="Total DL" :value="formatBytes(proc.totalDownloadBytes)" color="primary" size="base" />
+                <StatCard icon="arrowUpCircle" label="Total UL" :value="formatBytes(proc.totalUploadBytes)" color="info" size="base" />
             </div>
 
             <div class="bg-base-200 rounded-lg p-4 mb-4">
@@ -91,9 +79,10 @@ import {
 import { computed, onMounted, ref } from 'vue'
 import { Bar } from 'vue-chartjs'
 import { formatBytes, formatSpeed } from '../../composables/useNetwork.js'
-import { getProcessHistory } from '../../services/api.js'
+import { rustService } from '../../services/rust.js'
 import Button from '../Button.vue'
 import Icon from '../Icon.vue'
+import StatCard from '../StatCard.vue'
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend)
 
@@ -127,10 +116,11 @@ const periodLabel = computed(() => {
 
 async function loadHistory() {
     try {
-        history.value = await getProcessHistory(
+        const result = await rustService.getProcessHistory(
             props.proc.exePath,
             selectedPeriod.value,
         )
+        history.value = result ?? []
     } catch {
         history.value = []
     }

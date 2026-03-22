@@ -1,34 +1,10 @@
 <template>
     <div>
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-            <div class="bg-base-200 rounded-lg p-4 flex items-center gap-3">
-                <Icon name="arrowDownCircle" class="w-8 h-8 text-primary" />
-                <div>
-                    <div class="text-base-content/70 text-sm">24h Download</div>
-                    <div class="text-2xl font-bold text-primary">{{ formatBytes(totals.downloadBytes) }}</div>
-                </div>
-            </div>
-            <div class="bg-base-200 rounded-lg p-4 flex items-center gap-3">
-                <Icon name="arrowUpCircle" class="w-8 h-8 text-info" />
-                <div>
-                    <div class="text-base-content/70 text-sm">24h Upload</div>
-                    <div class="text-2xl font-bold text-info">{{ formatBytes(totals.uploadBytes) }}</div>
-                </div>
-            </div>
-            <div class="bg-base-200 rounded-lg p-4 flex items-center gap-3">
-                <Icon name="arrowDownCircle" class="w-8 h-8 text-primary" />
-                <div>
-                    <div class="text-base-content/70 text-sm">Download</div>
-                    <div class="text-2xl font-bold text-primary">{{ formatSpeed(currentDownload) }}</div>
-                </div>
-            </div>
-            <div class="bg-base-200 rounded-lg p-4 flex items-center gap-3">
-                <Icon name="arrowUpCircle" class="w-8 h-8 text-info" />
-                <div>
-                    <div class="text-base-content/70 text-sm">Upload</div>
-                    <div class="text-2xl font-bold text-info">{{ formatSpeed(currentUpload) }}</div>
-                </div>
-            </div>
+            <StatCard icon="arrowDownCircle" label="24h Download" :value="formatBytes(totals.downloadBytes)" color="primary" />
+            <StatCard icon="arrowUpCircle" label="24h Upload" :value="formatBytes(totals.uploadBytes)" color="info" />
+            <StatCard icon="arrowDownCircle" label="Download" :value="formatSpeed(currentDownload)" color="primary" />
+            <StatCard icon="arrowUpCircle" label="Upload" :value="formatSpeed(currentUpload)" color="info" />
         </div>
 
         <div class="bg-base-200 rounded-lg p-4">
@@ -49,10 +25,10 @@ import {
     Title,
     Tooltip,
 } from 'chart.js'
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
 import { Line } from 'vue-chartjs'
 import { formatBytes, formatSpeed } from '../../composables/useNetwork.js'
-import Icon from '../Icon.vue'
+import StatCard from '../StatCard.vue'
 
 ChartJS.register(
     CategoryScale,

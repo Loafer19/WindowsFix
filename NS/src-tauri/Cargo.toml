@@ -31,3 +31,5 @@ windows = { version = "0.62", features = [
     "UI_Notifications",
     "Data_Xml_Dom",
 ] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
