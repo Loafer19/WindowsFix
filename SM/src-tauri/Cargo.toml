@@ -28,6 +28,9 @@ windows = { version = "0.58", features = [
   "Win32_System_Threading",
   "Win32_Security",
   "Win32_System_SystemServices",
+  "Win32_System_Registry",
 ] }
 dotenvy = "0.15"
+rusqlite = { version = "0.32", features = ["bundled"] }
+chrono = { version = "0.4", features = ["serde"] }
 
