@@ -264,12 +264,12 @@ pub fn set_windows_service_startup_type(
         SERVICE_CHANGE_CONFIG | SERVICE_QUERY_STATUS | SERVICE_QUERY_CONFIG,
         move |service| unsafe {
             // Query existing config to preserve service type and error control
-            let (svc_type, err_ctrl) = read_service_type_and_error_control(service);
+            let (service_type, error_control) = read_service_type_and_error_control(service);
             ChangeServiceConfigW(
                 service,
-                svc_type,
+                service_type,
                 start_type,
-                err_ctrl,
+                error_control,
                 None, None, None, None, None, None, None,
             )
             .map_err(|e| format!("Failed to change startup type: {:?}", e))
@@ -290,12 +290,12 @@ pub fn disable_windows_service(service_name: &str) -> Result<WindowsService, Str
                 ControlService(service, SERVICE_CONTROL_STOP, &mut status).ok();
             }
             // Preserve service type and error control, only change start type
-            let (svc_type, err_ctrl) = read_service_type_and_error_control(service);
+            let (service_type, error_control) = read_service_type_and_error_control(service);
             ChangeServiceConfigW(
                 service,
-                svc_type,
+                service_type,
                 SERVICE_DISABLED,
-                err_ctrl,
+                error_control,
                 None, None, None, None, None, None, None,
             )
             .map_err(|e| format!("Failed to disable service: {:?}", e))

@@ -9,6 +9,11 @@ use crate::windows_api::to_wide_string;
 
 const RUN_KEY: &str = "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run";
 
+/// Maximum character count for a registry value name buffer (including null terminator).
+const MAX_REGISTRY_NAME_SIZE: usize = 256;
+/// Maximum byte size for a registry value data buffer.
+const MAX_REGISTRY_VALUE_SIZE: usize = 2048;
+
 /// List all startup entries from HKCU, HKLM, and the user startup folder.
 pub fn list_startup_apps() -> Result<Vec<StartupApp>, String> {
     let mut apps = Vec::new();
@@ -38,10 +43,10 @@ fn read_registry_startup(hive: HKEY, location: StartupLocation) -> Result<Vec<St
 
         let mut index: u32 = 0;
         loop {
-            let mut name_buf = vec![0u16; 256];
+            let mut name_buf = vec![0u16; MAX_REGISTRY_NAME_SIZE];
             let mut name_len = name_buf.len() as u32;
             let mut value_type = REG_VALUE_TYPE::default();
-            let mut data_buf = vec![0u8; 2048];
+            let mut data_buf = vec![0u8; MAX_REGISTRY_VALUE_SIZE];
             let mut data_len = data_buf.len() as u32;
 
             let result = RegEnumValueW(

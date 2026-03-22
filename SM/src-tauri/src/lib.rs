@@ -22,6 +22,9 @@ use windows_services::{
     stop_windows_service,
 };
 
+/// Maximum number of history entries loaded from the database on startup and returned per query.
+const MAX_HISTORY_ENTRIES: u32 = 500;
+
 #[tauri::command]
 async fn get_services(state: State<'_, AppState>) -> Result<Vec<WindowsService>, String> {
     let needs_refresh = {
@@ -409,7 +412,7 @@ pub fn run() {
 
     let services_info = database::load_service_info(&db, config.service_info_ttl.as_secs());
 
-    let history = database::load_history(&db, 500);
+    let history = database::load_history(&db, MAX_HISTORY_ENTRIES);
 
     let app_state = AppState {
         services_cache: Mutex::new(ServicesCache {
