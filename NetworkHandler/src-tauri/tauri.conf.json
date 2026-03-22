@@ -1,7 +1,7 @@
 {
     "$schema": "https://schema.tauri.app/config/2",
     "productName": "NetSentry",
-    "version": "0.2.2",
+    "version": "0.3.0",
     "identifier": "com.netsentry",
     "build": {
         "beforeDevCommand": "bun run dev",
@@ -30,7 +30,6 @@
         "shortDescription": "NetSentry Network Controller",
         "longDescription": "High-performance real-time network monitoring and traffic shaping",
         "icon": ["icons/icon.ico"],
-
         "windows": {
             "certificateThumbprint": null,
             "digestAlgorithm": "sha256",

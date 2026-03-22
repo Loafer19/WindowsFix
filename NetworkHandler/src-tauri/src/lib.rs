@@ -14,6 +14,26 @@ use tauri::{Manager, State};
 
 use models::{AppState, HourlyPoint, NetworkStats, NotificationConfig, ProcessInfo, Settings, WinDivertStatus};
 
+
+#[derive(Debug, thiserror::Error, serde::Serialize)]
+pub enum AppError {
+    #[error("IO Error: {0}")]
+    Io(String),
+    #[error("Lock Poisoned: {0}")]
+    Lock(String),
+    #[error("Windows API Error: {0}")]
+    Windows(String),
+    #[error("Invalid Period: {0}")]
+    InvalidPeriod(String),
+}
+
+// Convert common errors to AppError
+impl From<std::io::Error> for AppError {
+    fn from(e: std::io::Error) -> Self { Self::Io(e.to_string()) }
+}
+
+type AppResult<T> = Result<T, AppError>;
+
 // Embedded WinDivert driver file
 static WINDRIVER_SYS: &[u8] = include_bytes!("../drivers/WinDivert64.sys");
 
@@ -114,17 +134,9 @@ async fn stop_capture(state: State<'_, Arc<AppState>>) -> Result<(), String> {
 #[tauri::command]
 async fn get_network_stats(state: State<'_, Arc<AppState>>) -> Result<NetworkStats, String> {
     let w = state.window.lock().unwrap();
-    let elapsed = w.start_time.elapsed().as_secs_f64();
-    let download_bps = if elapsed > 0.0 {
-        ((w.download_bytes as f64) / elapsed) as u64
-    } else {
-        0
-    };
-    let upload_bps = if elapsed > 0.0 {
-        ((w.upload_bytes as f64) / elapsed) as u64
-    } else {
-        0
-    };
+    let elapsed = w.start_time.elapsed().as_secs_f64().max(0.1);
+    let download_bps = ((w.download_bytes as f64 / elapsed).round()) as u64;
+    let upload_bps = ((w.upload_bytes as f64 / elapsed).round()) as u64;
     Ok(NetworkStats {
         download_bps,
         upload_bps,
@@ -132,82 +144,44 @@ async fn get_network_stats(state: State<'_, Arc<AppState>>) -> Result<NetworkSta
 }
 
 #[tauri::command]
-async fn get_processes(state: State<'_, Arc<AppState>>) -> Result<Vec<ProcessInfo>, String> {
-    let pb = state.process_bytes.lock().unwrap().clone();
-    let ptb = state.process_total_bytes.lock().unwrap().clone();
-    let pid_to_exe = state.pid_to_exe.lock().unwrap().clone();
-    let blocked_exes = state.blocked_exes.lock().unwrap().clone();
-    let limits = state.process_limits.lock().unwrap().clone();
+async fn get_processes(state: State<'_, Arc<AppState>>) -> AppResult<Vec<ProcessInfo>> {
+    let pb = state.process_bytes.lock().map_err(|e| AppError::Lock(e.to_string()))?.clone();
+    let ptb = state.process_total_bytes.lock().map_err(|e| AppError::Lock(e.to_string()))?;
+    let pid_to_exe = state.pid_to_exe.lock().map_err(|e| AppError::Lock(e.to_string()))?;
+    let blocked_exes = state.blocked_exes.lock().map_err(|e| AppError::Lock(e.to_string()))?;
+    let limits = state.process_limits.lock().map_err(|e| AppError::Lock(e.to_string()))?;
 
-    // Aggregate live bytes and pick a representative PID per exe path
-    let mut exe_live: HashMap<String, (u32, u64, u64)> = HashMap::new(); // exe → (pid, dl_bps, ul_bps)
-    for (&pid, &(dl, ul)) in &pb {
-        if let Some(exe) = pid_to_exe.get(&pid) {
-            let entry = exe_live.entry(exe.clone()).or_insert((pid, 0, 0));
-            entry.1 = entry.1.saturating_add(dl);
-            entry.2 = entry.2.saturating_add(ul);
-        }
-    }
-    // Ensure every known exe path is represented even when idle
-    for (&pid, exe) in &pid_to_exe {
-        exe_live.entry(exe.clone()).or_insert((pid, 0, 0));
-    }
+    let mut list = Vec::with_capacity(ptb.len());
 
-    // Build one ProcessInfo per exe path using persisted totals
-    let mut list: Vec<ProcessInfo> = ptb
-        .into_iter()
-        .map(|(exe_path, (dl_total, ul_total))| {
-            let name = exe_path
-                .split(['\\', '/'])
-                .last()
-                .unwrap_or(&exe_path)
-                .to_string();
-            let (pid, dl_bps, ul_bps) = exe_live.get(&exe_path).copied().unwrap_or((0, 0, 0));
-            ProcessInfo {
-                pid,
-                name,
-                exe_path: exe_path.clone(),
-                download_bps: dl_bps,
-                upload_bps: ul_bps,
-                total_download_bytes: dl_total,
-                total_upload_bytes: ul_total,
-                blocked: blocked_exes.contains(&exe_path),
-                limit_bps: limits.get(&pid).copied().unwrap_or(0),
-            }
-        })
-        .collect();
+    // Merge persisted totals with live throughput
+    for (exe_path, (dl_total, ul_total)) in ptb.iter() {
+        let name = exe_path.split(['\\', '/']).last().unwrap_or(exe_path).to_string();
 
-    // Also include currently active processes not yet in persistent totals
-    for (exe_path, (pid, dl_bps, ul_bps)) in &exe_live {
-        if !list.iter().any(|p| &p.exe_path == exe_path) {
-            let name = exe_path
-                .split(['\\', '/'])
-                .last()
-                .unwrap_or(exe_path)
-                .to_string();
-            list.push(ProcessInfo {
-                pid: *pid,
-                name,
-                exe_path: exe_path.clone(),
-                download_bps: *dl_bps,
-                upload_bps: *ul_bps,
-                total_download_bytes: 0,
-                total_upload_bytes: 0,
-                blocked: blocked_exes.contains(exe_path),
-                limit_bps: limits.get(pid).copied().unwrap_or(0),
-            });
-        }
+        // Find if this exe is currently active (matching by path)
+        let (pid, dl_bps, ul_bps) = pid_to_exe.iter()
+            .find(|(_, path)| *path == exe_path)
+            .map(|(&id, _)| {
+                let bytes = pb.get(&id).copied().unwrap_or((0, 0));
+                (id, bytes.0, bytes.1)
+            })
+            .unwrap_or((0, 0, 0));
+
+        list.push(ProcessInfo {
+            pid,
+            name,
+            exe_path: exe_path.clone(),
+            download_bps: dl_bps,
+            upload_bps: ul_bps,
+            total_download_bytes: *dl_total,
+            total_upload_bytes: *ul_total,
+            blocked: blocked_exes.contains(exe_path),
+            limit_bps: limits.get(&pid).copied().unwrap_or(0),
+        });
     }
 
-    // Filter out processes with no historical activity
-    list.retain(|p| p.total_download_bytes > 0 || p.total_upload_bytes > 0);
-
-    list.sort_by(|a, b| {
-        (b.total_download_bytes + b.total_upload_bytes).cmp(&(a.total_download_bytes + a.total_upload_bytes))
-    });
+    list.sort_by(|a, b| (b.total_download_bytes + b.total_upload_bytes).cmp(&(a.total_download_bytes + a.total_upload_bytes)));
     Ok(list)
 }
-
 #[tauri::command]
 async fn set_global_limit(
     bytes_per_sec: u64,
@@ -298,35 +272,57 @@ async fn kill_process(pid: u32) -> Result<(), String> {
     }
 }
 
-
-
 #[tauri::command]
 async fn get_process_history(
     exe_path: String,
     period: String,
     state: State<'_, Arc<AppState>>,
 ) -> Result<Vec<HourlyPoint>, String> {
-    let hourly = state.process_hourly.lock().unwrap_or_else(|e| e.into_inner());
-    let raw_points: Vec<(u64, u64)> = hourly
+    // 1. Consistent Mutex handling with proper error mapping
+    let hourly_lock = state.process_hourly.lock()
+        .map_err(|_| "Failed to lock process_hourly".to_string())?;
+
+    // Get the historical points for this executable
+    let raw_points: Vec<(u64, u64)> = hourly_lock
         .get(&exe_path)
         .cloned()
         .unwrap_or_default()
         .into();
 
+    // Drop the lock early to avoid holding it during logic processing
+    drop(hourly_lock);
+
+    let current = state.current_process_acc.lock()
+        .map_err(|_| "Failed to lock current_process_acc".to_string())?
+        .get(&exe_path)
+        .copied()
+        .unwrap_or((0, 0));
+
     let aggregated = match period.as_str() {
-        "24h" => {
-            // Last 24 hours, hourly
-            raw_points.into_iter().rev().take(24).rev().collect()
+        "24h" | "" => {
+            let mut points: Vec<(u64, u64)> = raw_points.iter()
+                .rev()
+                .take(23)
+                .copied()
+                .collect();
+            points.reverse();
+            points.push(current);
+
+            if points.len() < 24 {
+                let mut padded = vec![(0, 0); 24 - points.len()];
+                padded.append(&mut points);
+                padded
+            } else {
+                points
+            }
         }
-        "7d" => {
-            // Last 7 days, daily (24 hours aggregated)
-            aggregate_daily(&raw_points, 7)
+        "7d" | "30d" => {
+            let days = if period == "7d" { 7 } else { 30 };
+            let mut extended = raw_points;
+            extended.push(current);
+            aggregate_daily(&extended, days)
         }
-        "30d" => {
-            // Last 30 days, daily
-            aggregate_daily(&raw_points, 30)
-        }
-        _ => raw_points.into_iter().rev().take(24).rev().collect(),
+        _ => return Err(format!("Unsupported period: {}", period)),
     };
 
     let points = aggregated
@@ -336,25 +332,25 @@ async fn get_process_history(
             upload_bytes: ul,
         })
         .collect();
+
     Ok(points)
 }
 
 fn aggregate_daily(raw: &[(u64, u64)], days: usize) -> Vec<(u64, u64)> {
-    let hours_per_day = 24;
-    let total_hours = days * hours_per_day;
-    let mut result = Vec::new();
-    let start_base = raw.len().saturating_sub(total_hours);
-    for day in 0..days {
-        let start_idx = start_base + day * hours_per_day;
-        if start_idx >= raw.len() {
-            result.push((0, 0));
-            continue;
-        }
-        let end_idx = (start_idx + hours_per_day).min(raw.len());
-        let day_data = &raw[start_idx..end_idx];
-        let (dl, ul) = day_data.iter().fold((0u64, 0u64), |(a, b), &(d, u)| (a + d, b + u));
-        result.push((dl, ul));
+    let mut result: Vec<(u64, u64)> = raw
+        .rchunks(24)
+        .take(days)
+        // Sum the download and upload for each 24-hour chunk
+        .map(|chunk| {
+            chunk.iter().fold((0, 0), |acc, val| (acc.0 + val.0, acc.1 + val.1))
+        })
+        .collect();
+
+    while result.len() < days {
+        result.push((0, 0));
     }
+
+    result.reverse();
     result
 }
 
@@ -533,6 +529,18 @@ async fn start_windivert_service() -> Result<(), String> {
 }
 
 #[tauri::command]
+async fn clear_all_data(state: State<'_, Arc<AppState>>) -> Result<(), String> {
+    // Clear all persistent data
+    *state.process_total_bytes.lock().unwrap() = HashMap::new();
+    *state.process_hourly.lock().unwrap() = HashMap::new();
+    *state.global_hourly.lock().unwrap() = std::collections::VecDeque::new();
+    state.current_hour_dl.store(0, std::sync::atomic::Ordering::Relaxed);
+    state.current_hour_ul.store(0, std::sync::atomic::Ordering::Relaxed);
+
+    persist_app_data(&state)
+}
+
+#[tauri::command]
 async fn exit_app(app: tauri::AppHandle) -> Result<(), String> {
     app.exit(0);
     Ok(())
@@ -660,6 +668,7 @@ pub fn run() {
             check_windivert_status,
             install_windivert,
             start_windivert_service,
+            clear_all_data,
             exit_app,
         ])
         .run(tauri::generate_context!())

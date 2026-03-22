@@ -133,6 +133,8 @@ pub struct AppState {
     pub current_hour_dl: Arc<AtomicU64>,
     /// Current (incomplete) hour upload bytes — updated on every packet.
     pub current_hour_ul: Arc<AtomicU64>,
+    /// Current (incomplete) hour per-exe bytes: exe_path → (dl, ul).
+    pub current_process_acc: Arc<Mutex<HashMap<String, (u64, u64)>>>,
     // ── configuration ───────────────────────────────────────────────────────
     pub settings: Arc<Mutex<Settings>>,
     pub notification_config: Arc<Mutex<NotificationConfig>>,
@@ -165,6 +167,7 @@ impl AppState {
             global_hourly: Arc::new(Mutex::new(global_hourly)),
             current_hour_dl: Arc::new(AtomicU64::new(0)),
             current_hour_ul: Arc::new(AtomicU64::new(0)),
+            current_process_acc: Arc::new(Mutex::new(HashMap::new())),
             settings: Arc::new(Mutex::new(settings)),
             notification_config: Arc::new(Mutex::new(notification_config)),
         }

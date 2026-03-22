@@ -1,6 +1,5 @@
 <template>
     <div>
-        <!-- Combined stats tiles -->
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
             <div class="bg-base-200 rounded-lg p-4 flex items-center gap-3">
                 <Icon name="arrowDownCircle" class="w-8 h-8 text-primary" />
@@ -32,7 +31,6 @@
             </div>
         </div>
 
-        <!-- Bandwidth chart -->
         <div class="bg-base-200 rounded-lg p-4">
             <Line :data="chartData" :options="chartOptions" />
         </div>

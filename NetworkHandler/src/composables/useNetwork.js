@@ -31,8 +31,6 @@ export function useNetwork() {
     function pushStats(downloadBps, uploadBps) {
         downloadHistory.value = [...downloadHistory.value.slice(1), downloadBps]
         uploadHistory.value = [...uploadHistory.value.slice(1), uploadBps]
-        // Labels represent relative time offsets and stay constant;
-        // the data window shifts left on every push.
     }
 
     return {

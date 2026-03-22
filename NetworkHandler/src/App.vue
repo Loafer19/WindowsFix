@@ -94,10 +94,8 @@ const totals24h = ref({ downloadBytes: 0, uploadBytes: 0 })
 
 const notifications = ref([])
 let nextNotifId = 0
-// Track which threshold notification was already fired this session
 const notifFiredDl = ref(false)
 const notifFiredUl = ref(false)
-// Track seen exe paths for new-process alerts
 const seenExes = new Set()
 let firstPoll = true
 
@@ -113,25 +111,23 @@ onMounted(async () => {
     }
     pollInterval = setInterval(poll, 1000)
 
-    // Check WinDivert status on startup and notify if library is not working
     try {
         const wdStatus = await checkWinDivertStatus()
         if (!wdStatus.libraryExists) {
             pushNotification({
                 type: 'warning',
-                message: 'WinDivert library is missing. Network monitoring is unavailable. Go to Configs → WinDivert to install.',
+                message:
+                    'WinDivert library is missing. Network monitoring is unavailable. Go to Configs → WinDivert to install.',
             })
         } else if (!wdStatus.serviceRunning) {
             pushNotification({
                 type: 'info',
-                message: 'WinDivert service is not running. Network monitoring may be limited. Go to Configs → WinDivert to start it.',
+                message:
+                    'WinDivert service is not running. Network monitoring may be limited. Go to Configs → WinDivert to start it.',
             })
         }
-    } catch {
-        /* ignore — backend may not be fully started */
-    }
+    } catch {}
 
-    // Intercept window close: hide to tray if configured, otherwise exit
     try {
         const appWindow = getCurrentWindow()
         await appWindow.onCloseRequested(async (event) => {
@@ -147,18 +143,14 @@ onMounted(async () => {
                 await exitApp()
             }
         })
-    } catch {
-        /* not in Tauri context (e.g. browser preview) */
-    }
+    } catch {}
 })
 
 onUnmounted(async () => {
     clearInterval(pollInterval)
     try {
         await stopCapture()
-    } catch {
-        /* ignore */
-    }
+    } catch {}
 })
 
 async function poll() {
@@ -171,7 +163,6 @@ async function poll() {
         pushStats(stats.downloadBps, stats.uploadBps)
         totals24h.value = totals
 
-        // Merge server data with local UI state flags (isPending, isTerminating)
         processes.value = procs.map((p) => {
             const existing =
                 processes.value.find((e) => e.exePath === p.exePath) ?? {}
@@ -183,16 +174,13 @@ async function poll() {
         })
 
         await checkNotifications(procs, totals)
-    } catch {
-        // capture may not be running yet
-    }
+    } catch {}
 }
 
 async function checkNotifications(procs, totals) {
     try {
         const notifConfig = await getNotificationConfig()
 
-        // New process alert — seed on first poll, fire on subsequent polls
         if (notifConfig.newProcessAlert) {
             if (firstPoll) {
                 for (const p of procs) seenExes.add(p.exePath)
@@ -217,7 +205,6 @@ async function checkNotifications(procs, totals) {
             firstPoll = false
         }
 
-        // Download threshold
         const dlGb = totals.downloadBytes / 1_073_741_824
         if (
             notifConfig.downloadThresholdGb > 0 &&
@@ -236,7 +223,6 @@ async function checkNotifications(procs, totals) {
             }
         }
 
-        // Upload threshold
         const ulGb = totals.uploadBytes / 1_073_741_824
         if (
             notifConfig.uploadThresholdGb > 0 &&
@@ -254,9 +240,7 @@ async function checkNotifications(procs, totals) {
                 showNativeNotification('NetSentry Alert', message)
             }
         }
-    } catch {
-        /* ignore */
-    }
+    } catch {}
 }
 
 function pushNotification(notification) {
@@ -278,9 +262,7 @@ async function onThrottle({ proc, bps }) {
         await setProcessLimit(proc.pid, bps)
         const found = processes.value.find((p) => p.exePath === proc.exePath)
         if (found) found.limitBps = bps
-    } catch {
-        /* ignore */
-    }
+    } catch {}
 }
 
 async function onBlockToggle(proc) {
@@ -306,7 +288,6 @@ async function onTerminate(proc) {
             (p) => p.exePath !== proc.exePath,
         )
     } catch {
-        /* ignore — process may already be gone */
     } finally {
         proc.isTerminating = false
     }

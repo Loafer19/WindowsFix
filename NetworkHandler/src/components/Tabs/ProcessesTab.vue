@@ -53,7 +53,6 @@
                         :class="{ 'opacity-50': proc.blocked }"
                         @click.stop="openModal(proc)"
                     >
-                        <!-- Combined Name + PID column -->
                         <td>
                             <div class="flex flex-col">
                                 <span class="font-medium" :class="proc.blocked ? 'line-through text-error' : ''">{{ proc.name }}</span>
@@ -100,6 +99,7 @@
 </template>
 
 <script setup>
+import { invoke } from '@tauri-apps/api/core'
 import { computed, ref } from 'vue'
 import { formatBytes, formatSpeed } from '../../composables/useNetwork.js'
 import Button from '../Button.vue'
@@ -110,11 +110,16 @@ const props = defineProps({
     processes: { type: Array, default: () => [] },
 })
 
-const emit = defineEmits(['block-toggle', 'terminate', 'throttle'])
+const emit = defineEmits([
+    'block-toggle',
+    'terminate',
+    'throttle',
+    'notification',
+])
 
 const searchQuery = ref('')
 const sortField = ref('totalDownloadBytes')
-const sortDir = ref('desc') // 'asc' | 'desc'
+const sortDir = ref('desc')
 const modalProc = ref(null)
 
 const filtered = computed(() => {
@@ -157,11 +162,5 @@ function sortIcon(field) {
 
 function openModal(proc) {
     modalProc.value = proc
-}
-
-function onThrottleChange(proc, event) {
-    const kb = Number(event.target.value)
-    const bps = kb > 0 ? kb * 1024 : 0
-    emit('throttle', { proc, bps })
 }
 </script>

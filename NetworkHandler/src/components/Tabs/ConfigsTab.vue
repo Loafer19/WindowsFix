@@ -1,7 +1,5 @@
 <template>
     <div class="space-y-6">
-
-        <!-- Global speed limit card -->
         <div class="card bg-base-200 rounded-lg">
             <div class="card-body">
                 <h2 class="card-title gap-2">
@@ -19,7 +17,6 @@
             </div>
         </div>
 
-        <!-- Notifications card -->
         <div class="card bg-base-200 rounded-lg">
             <div class="card-body">
                 <h2 class="card-title gap-2">
@@ -30,7 +27,6 @@
                     Configure alert triggers and where they should appear.
                 </p>
 
-                <!-- New process alert -->
                 <div class="form-control">
                     <label class="label cursor-pointer justify-start gap-4">
                         <input v-model="notif.newProcessAlert" type="checkbox" class="toggle toggle-info"
@@ -47,7 +43,6 @@
 
                 <div class="divider my-2"></div>
 
-                <!-- Download threshold -->
                 <div class="flex items-center gap-2 flex-wrap">
                     <Icon name="arrowDownCircle" class="w-5 h-5 text-success shrink-0" />
                     <span class="text-sm font-medium w-40">Download threshold</span>
@@ -59,7 +54,6 @@
                     </div>
                 </div>
 
-                <!-- Upload threshold -->
                 <div class="flex items-center gap-2 flex-wrap mt-2">
                     <Icon name="arrowUpCircle" class="w-5 h-5 text-info shrink-0" />
                     <span class="text-sm font-medium w-40">Upload threshold</span>
@@ -73,7 +67,6 @@
 
                 <div class="divider my-2"></div>
 
-                <!-- Notification display mode -->
                 <div class="flex items-center gap-4 flex-wrap">
                     <Icon name="alarmWarning" class="w-5 h-5 text-info shrink-0" />
                     <span class="text-sm font-medium">Display mode</span>
@@ -89,7 +82,6 @@
             </div>
         </div>
 
-        <!-- Settings card -->
         <div class="card bg-base-200 rounded-lg">
             <div class="card-body">
                 <h2 class="card-title gap-2">
@@ -100,25 +92,6 @@
                     Application behaviour and system integration.
                 </p>
 
-                <!-- App version -->
-                <div class="flex items-center gap-3 flex-wrap mb-2">
-                    <Icon name="info" class="w-5 h-5 text-primary shrink-0" />
-                    <span class="text-sm font-medium">Version</span>
-                    <span class="badge badge-ghost font-mono text-xs">{{ appVersion || '—' }}</span>
-                    <button class="btn btn-xs btn-outline" :disabled="checkingUpdates" @click="checkForUpdates">
-                        <span v-if="checkingUpdates" class="loading loading-spinner loading-xs mr-1"></span>
-                        Check for updates
-                    </button>
-                    <a v-if="updateChecked && updateAvailable" :href="releaseUrl" target="_blank"
-                        class="link link-primary text-sm font-medium">
-                        v{{ latestVersion }} available →
-                    </a>
-                    <span v-if="updateChecked && !updateAvailable" class="text-xs text-success">✓ Up to date</span>
-                </div>
-
-                <div class="divider my-2"></div>
-
-                <!-- Start with Windows -->
                 <div class="form-control">
                     <label class="label cursor-pointer justify-start gap-4">
                         <input v-model="appSettings.startWithWindows" type="checkbox" class="toggle toggle-primary"
@@ -139,7 +112,6 @@
 
                 <div class="divider my-2"></div>
 
-                <!-- Minimize to tray -->
                 <div class="form-control">
                     <label class="label cursor-pointer justify-start gap-4">
                         <input v-model="appSettings.minimizeToTray" type="checkbox" class="toggle toggle-primary"
@@ -160,7 +132,6 @@
 
                 <div class="divider my-2"></div>
 
-                <!-- Start minimized -->
                 <div class="form-control">
                     <label class="label cursor-pointer justify-start gap-4">
                         <input v-model="appSettings.startMinimized" type="checkbox" class="toggle toggle-primary"
@@ -181,10 +152,34 @@
                 <div v-if="settingsError" class="alert alert-error mt-3 py-2 text-sm">
                     {{ settingsError }}
                 </div>
+
+                <div class="divider my-2"></div>
+
+                <div class="flex items-center gap-3 flex-wrap">
+                    <Icon name="settings" class="w-5 h-5 text-primary" />
+                    <span class="text-sm font-medium">Version</span>
+                    <span class="badge badge-dark font-mono text-xs">{{ appVersion || '—' }}</span>
+                    <button class="btn btn-xs btn-outline" :disabled="checkingUpdates" @click="checkForUpdates">
+                        <span v-if="checkingUpdates" class="loading loading-spinner loading-xs mr-1"></span>
+                        Check for updates
+                    </button>
+                    <a v-if="updateChecked && updateAvailable" :href="releaseUrl" target="_blank"
+                        class="link link-primary text-sm font-medium">
+                        v{{ latestVersion }} available →
+                    </a>
+                    <span v-if="updateChecked && !updateAvailable" class="text-xs text-success">✓ Up to date</span>
+                </div>
+
+                <div class="divider my-2"></div>
+
+                <div class="flex items-center gap-3">
+                    <Button class="btn btn-error btn-sm" @click="clearAllData">
+                        Clear All Data
+                    </Button>
+                </div>
             </div>
         </div>
 
-        <!-- WinDivert card -->
         <div class="card bg-base-200 rounded-lg">
             <div class="card-body">
                 <h2 class="card-title gap-2">
@@ -195,7 +190,6 @@
                     Packet capture driver required for network monitoring.
                 </p>
 
-                <!-- Status indicators -->
                 <div class="flex items-center gap-4 flex-wrap">
                     <div class="flex items-center gap-2">
                         <Icon name="settings" class="w-4 h-4 text-neutral" />
@@ -215,7 +209,6 @@
                     </div>
                 </div>
 
-                <!-- Action buttons -->
                 <div class="mt-4 flex gap-2 flex-wrap">
                     <button v-if="!windivertStatus.libraryExists || !windivertStatus.serviceExists"
                         class="btn btn-primary btn-sm" :disabled="installingWindivert" @click="installWindivertHandler">
@@ -242,6 +235,7 @@
 
 <script setup>
 import { getVersion } from '@tauri-apps/api/app'
+import { invoke } from '@tauri-apps/api/core'
 import { computed, onMounted, reactive, ref } from 'vue'
 import {
     checkWinDivertStatus,
@@ -323,9 +317,7 @@ onMounted(async () => {
         if (index >= 0) {
             limitIndex.value = index
         }
-    } catch {
-        /* ignore — backend may not be fully started */
-    }
+    } catch {}
 })
 
 async function checkForUpdates() {
@@ -333,15 +325,22 @@ async function checkForUpdates() {
     updateChecked.value = false
     updateAvailable.value = false
     try {
-        const res = await fetch('https://api.github.com/repos/Loafer19/WindowsFix/releases/latest')
+        const res = await fetch(
+            'https://api.github.com/repos/Loafer19/WindowsFix/releases/latest',
+        )
         const data = await res.json()
         const latest = (data.tag_name ?? '').replace(/^v/, '')
         latestVersion.value = latest
-        releaseUrl.value = data.html_url ?? 'https://github.com/Loafer19/WindowsFix/releases'
-        updateAvailable.value = latest !== '' && compareVersions(latest, appVersion.value) > 0
+        releaseUrl.value =
+            data.html_url ?? 'https://github.com/Loafer19/WindowsFix/releases'
+        updateAvailable.value =
+            latest !== '' && compareVersions(latest, appVersion.value) > 0
         updateChecked.value = true
     } catch {
-        emit('notification', { type: 'error', message: 'Failed to check for updates' })
+        emit('notification', {
+            type: 'error',
+            message: 'Failed to check for updates',
+        })
     } finally {
         checkingUpdates.value = false
     }
@@ -454,4 +453,22 @@ async function startWindivertServiceHandler() {
         installingWindivert.value = false
     }
 }
+    async function clearAllData() {
+        if (confirm(
+            'Are you sure you want to clear all saved data?'
+        )) {
+            try {
+                await invoke('clear_all_data')
+                emit('notification', {
+                    type: 'success',
+                    message: 'All data cleared successfully'
+                })
+            } catch (e) {
+                emit('notification', {
+                    type: 'error',
+                    message: 'Failed to clear data: ' + e
+                })
+            }
+        }
+    }
 </script>
