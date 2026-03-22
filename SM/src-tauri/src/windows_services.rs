@@ -164,7 +164,7 @@ pub async fn get_windows_services() -> Result<Vec<WindowsService>, String> {
 /// Common helper: open the SCM and the named service, run `f`, then query and return the updated state.
 fn apply_service_operation<F>(
     service_name: &str,
-    access: SERVICE_ACCESS_RIGHTS,
+    access: u32,
     f: F,
 ) -> Result<WindowsService, String>
 where
@@ -267,9 +267,9 @@ pub fn set_windows_service_startup_type(
             let (service_type, error_control) = read_service_type_and_error_control(service);
             ChangeServiceConfigW(
                 service,
-                service_type,
+                ENUM_SERVICE_TYPE(service_type.0),
                 start_type,
-                error_control,
+                SERVICE_ERROR(error_control.0),
                 None, None, None, None, None, None, None,
             )
             .map_err(|e| format!("Failed to change startup type: {:?}", e))
@@ -293,9 +293,9 @@ pub fn disable_windows_service(service_name: &str) -> Result<WindowsService, Str
             let (service_type, error_control) = read_service_type_and_error_control(service);
             ChangeServiceConfigW(
                 service,
-                service_type,
+                ENUM_SERVICE_TYPE(service_type.0),
                 SERVICE_DISABLED,
-                error_control,
+                SERVICE_ERROR(error_control.0),
                 None, None, None, None, None, None, None,
             )
             .map_err(|e| format!("Failed to disable service: {:?}", e))
@@ -306,7 +306,7 @@ pub fn disable_windows_service(service_name: &str) -> Result<WindowsService, Str
 /// Query the current service type and error control, falling back to safe defaults.
 unsafe fn read_service_type_and_error_control(
     service: SC_HANDLE,
-) -> (SERVICE_TYPE, SERVICE_ERROR_CONTROL) {
+) -> (ENUM_SERVICE_TYPE, SERVICE_ERROR) {
     let mut config_size: u32 = 0;
     let _ = QueryServiceConfigW(service, None, 0, &mut config_size);
     if config_size > 0 {

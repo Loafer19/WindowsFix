@@ -29,7 +29,6 @@
         "copyright": "Popelyshyn",
         "shortDescription": "Services Manager",
         "longDescription": "A desktop application for managing Windows services",
-        "icon": ["icons/icon.ico"],
-        "resources": ["services.json"]
+        "icon": ["icons/icon.ico"]
     }
 }

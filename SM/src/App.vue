@@ -111,9 +111,9 @@ import AnalyticsTab from './components/Tabs/AnalyticsTab.vue'
 import FiltersTab from './components/Tabs/FiltersTab.vue'
 import HistoryTab from './components/Tabs/HistoryTab.vue'
 import PresetsTab from './components/Tabs/PresetsTab.vue'
+import StartupTab from './components/Tabs/StartupTab.vue'
 import { useAnalytics } from './composables/useAnalytics.js'
 import { useFiltering } from './composables/useFiltering.js'
-import { useHistory } from './composables/useHistory.js'
 import { useModals } from './composables/useModals.js'
 import {
     disableService,
@@ -133,6 +133,12 @@ const tabs = ref([
         name: 'Filters',
         component: markRaw(FiltersTab),
         icon: 'equalizer',
+    },
+    {
+        id: 'startup',
+        name: 'Startup Apps',
+        component: markRaw(StartupTab),
+        icon: 'rocket',
     },
     {
         id: 'analytics',
@@ -183,7 +189,7 @@ const {
     openModalForDetails,
 } = useModals()
 
-const { history, addToHistory, clearHistory } = useHistory()
+// History is now managed by individual tabs
 
 // Preset state
 const showPresetModal = ref(false)
@@ -291,12 +297,7 @@ const handleServiceAction = async (service, payload) => {
                 original.startupType = updated.startupType
             }
 
-            addToHistory(
-                service,
-                actionLabel,
-                previousStatus,
-                previousStartupType,
-            )
+            // History is automatically recorded by backend
             filterServices()
         }
     } catch (err) {
@@ -314,12 +315,7 @@ const disable = async (service) => {
 
     try {
         const data = await disableService(service.name)
-        addToHistory(
-            { ...service, status: data.status, startupType: data.startupType },
-            'Disabled',
-            previousStatus,
-            previousStartupType,
-        )
+        // History is automatically recorded by backend
         Object.assign(service, data)
         filterServices()
     } catch (error) {
@@ -352,16 +348,7 @@ const applyPreset = async (preset) => {
 
         try {
             const data = await disableService(service.name)
-            addToHistory(
-                {
-                    ...service,
-                    status: data.status,
-                    startupType: data.startupType,
-                },
-                'Preset Applied',
-                previousStatus,
-                previousStartupType,
-            )
+            // History is automatically recorded by backend
             Object.assign(service, data)
             results.push({ name: service.name, success: true })
         } catch (err) {

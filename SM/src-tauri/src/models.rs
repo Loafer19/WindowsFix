@@ -27,9 +27,11 @@ pub struct ServiceInfo {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StartupApp {
     pub name: String,
-    pub command: String,
+    pub path: String,
+    pub arguments: Option<String>,
     pub location: StartupLocation,
     pub enabled: bool,
+    pub description: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

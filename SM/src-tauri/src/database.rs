@@ -143,11 +143,16 @@ pub fn load_history(conn: &Connection, limit: u32) -> Vec<HistoryEntry> {
         }
     };
 
-    match stmt.query_map(params![limit as i64], |row| row.get::<_, String>(0)) {
-        Ok(rows) => rows
-            .flatten()
-            .filter_map(|json| serde_json::from_str(&json).ok())
-            .collect(),
+    let json_vec: Vec<String> = match stmt.query_map(params![limit as i64], |row| row.get::<_, String>(0)) {
+        Ok(rows) => rows.flatten().collect(),
         Err(_) => vec![],
+    };
+    json_vec.into_iter().filter_map(|json| serde_json::from_str(&json).ok()).collect()
+}
+
+/// Clear all history entries from the database.
+pub fn clear_history(conn: &Connection) {
+    if let Err(e) = conn.execute("DELETE FROM history", []) {
+        eprintln!("Failed to clear history: {}", e);
     }
 }

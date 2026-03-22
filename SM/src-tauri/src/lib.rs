@@ -245,14 +245,14 @@ async fn get_startup_apps(state: State<'_, AppState>) -> Result<Vec<StartupApp>,
 
 #[tauri::command]
 async fn remove_startup_app(
-    name: String,
-    location: StartupLocation,
+    app: StartupApp,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let name_clone = name.clone();
-    let location_clone = location.clone();
+    let name = app.name.clone();
+    let location = app.location.clone();
+    let app_clone = app.clone();
     match tokio::task::spawn_blocking(move || {
-        startup_apps::remove_startup_app(&name_clone, &location_clone)
+        startup_apps::remove_startup_app(&app_clone.name, &app_clone.location)
     })
     .await
     {
@@ -271,22 +271,18 @@ async fn remove_startup_app(
 
 #[tauri::command]
 async fn add_startup_app(
-    name: String,
-    command: String,
-    location: StartupLocation,
+    app: StartupApp,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let name_clone = name.clone();
-    let command_clone = command.clone();
-    let location_clone = location.clone();
+    let app_clone = app.clone();
     match tokio::task::spawn_blocking(move || {
-        startup_apps::add_startup_app(&name_clone, &command_clone, &location_clone)
+        startup_apps::add_startup_app(&app_clone)
     })
     .await
     {
         Ok(result) => match result {
             Ok(()) => {
-                let entry = HistoryEntry::startup_app(&name, "add", location.as_str());
+                let entry = HistoryEntry::startup_app(&app.name, "add", app.location.as_str());
                 state.history.lock().unwrap().push(entry.clone());
                 database::append_history(&state.db.lock().unwrap(), &entry);
                 Ok(())
@@ -318,6 +314,23 @@ async fn get_history(
         _ => history.clone(),
     };
     Ok(entries)
+}
+
+#[tauri::command]
+async fn get_history_by_type(
+    entry_type: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<HistoryEntry>, String> {
+    get_history(Some(entry_type), state).await
+}
+
+#[tauri::command]
+async fn clear_history(state: State<'_, AppState>) -> Result<(), String> {
+    let mut history = state.history.lock().unwrap();
+    history.clear();
+    let db = state.db.lock().unwrap();
+    database::clear_history(&db);
+    Ok(())
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -442,6 +455,8 @@ pub fn run() {
             remove_startup_app,
             add_startup_app,
             get_history,
+            get_history_by_type,
+            clear_history,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

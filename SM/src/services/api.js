@@ -40,6 +40,30 @@ async function setStartupType(serviceName, startupType) {
     return await invoke('set_startup_type', { serviceName, startupType })
 }
 
+async function getStartupApps() {
+    return await invoke('get_startup_apps')
+}
+
+async function addStartupApp(app) {
+    return await invoke('add_startup_app', { app })
+}
+
+async function removeStartupApp(app) {
+    return await invoke('remove_startup_app', { app })
+}
+
+async function getHistory() {
+    return await invoke('get_history')
+}
+
+async function getHistoryByType(entryType) {
+    return await invoke('get_history_by_type', { entryType })
+}
+
+async function clearHistoryAction() {
+    return await invoke('clear_history')
+}
+
 export {
     loadServices,
     refreshServices,
@@ -49,4 +73,10 @@ export {
     stopService,
     restartService,
     setStartupType,
+    getStartupApps,
+    addStartupApp,
+    removeStartupApp,
+    getHistory,
+    getHistoryByType,
+    clearHistoryAction,
 }

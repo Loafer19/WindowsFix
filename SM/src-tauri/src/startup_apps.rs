@@ -45,7 +45,7 @@ fn read_registry_startup(hive: HKEY, location: StartupLocation) -> Result<Vec<St
         loop {
             let mut name_buf = vec![0u16; MAX_REGISTRY_NAME_SIZE];
             let mut name_len = name_buf.len() as u32;
-            let mut value_type = REG_VALUE_TYPE::default();
+            let mut value_type: u32 = 0;
             let mut data_buf = vec![0u8; MAX_REGISTRY_VALUE_SIZE];
             let mut data_len = data_buf.len() as u32;
 
@@ -71,7 +71,7 @@ fn read_registry_startup(hive: HKEY, location: StartupLocation) -> Result<Vec<St
             let name = String::from_utf16_lossy(&name_buf[..name_len as usize]).to_string();
 
             // Only handle REG_SZ and REG_EXPAND_SZ
-            if value_type != REG_SZ && value_type != REG_EXPAND_SZ {
+            if value_type != 1 && value_type != 2 {
                 index += 1;
                 continue;
             }
@@ -88,11 +88,21 @@ fn read_registry_startup(hive: HKEY, location: StartupLocation) -> Result<Vec<St
                 .unwrap_or(word_count);
             let command = String::from_utf16_lossy(&words[..end]).to_string();
 
+            // Parse command into path and arguments
+            let (path, arguments) = if command.contains(' ') {
+                let parts: Vec<&str> = command.splitn(2, ' ').collect();
+                (parts[0].to_string(), Some(parts[1].to_string()))
+            } else {
+                (command, None)
+            };
+
             apps.push(StartupApp {
                 name,
-                command,
+                path,
+                arguments,
                 location: location.clone(),
                 enabled: true,
+                description: None,
             });
 
             index += 1;
@@ -123,9 +133,11 @@ fn read_startup_folder() -> Result<Vec<StartupApp>, String> {
                     .to_string();
                 apps.push(StartupApp {
                     name,
-                    command: path.to_string_lossy().to_string(),
+                    path: path.to_string_lossy().to_string(),
+                    arguments: None,
                     location: StartupLocation::StartupFolder,
                     enabled: true,
+                    description: None,
                 });
             }
         }
@@ -192,10 +204,16 @@ fn remove_folder_entry(name: &str) -> Result<(), String> {
 }
 
 /// Add a startup registry entry (HKCU or HKLM only; startup folder not supported).
-pub fn add_startup_app(name: &str, command: &str, location: &StartupLocation) -> Result<(), String> {
-    match location {
-        StartupLocation::HkeyCurrentUser => add_registry_entry(HKEY_CURRENT_USER, name, command),
-        StartupLocation::HkeyLocalMachine => add_registry_entry(HKEY_LOCAL_MACHINE, name, command),
+pub fn add_startup_app(app: &StartupApp) -> Result<(), String> {
+    let command = if let Some(args) = &app.arguments {
+        format!("{} {}", app.path, args)
+    } else {
+        app.path.clone()
+    };
+
+    match &app.location {
+        StartupLocation::HkeyCurrentUser => add_registry_entry(HKEY_CURRENT_USER, &app.name, &command),
+        StartupLocation::HkeyLocalMachine => add_registry_entry(HKEY_LOCAL_MACHINE, &app.name, &command),
         StartupLocation::StartupFolder => Err(
             "Adding entries to the startup folder is not supported via this interface".to_string(),
         ),
