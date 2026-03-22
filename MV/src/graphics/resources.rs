@@ -1,7 +1,7 @@
 //! GPU resources and state
 
 use crate::common::error::{AppError, AppResult};
-use crate::graphics::buffers::BufferManager;
+use super::init::BufferManager;
 use crate::visualization::Plugin;
 use std::time::Instant;
 

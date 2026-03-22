@@ -7,7 +7,6 @@ mod ui;
 mod graphics;
 mod visualization;
 mod config;
-mod platform;
 
 use crate::app::App;
 use crate::common::error::{AppError, AppResult};

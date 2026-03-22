@@ -47,16 +47,58 @@ impl App {
 
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        let icon = {
-            let image = image::load_from_memory(include_bytes!("../../assets/logo.png")).unwrap().to_rgba8();
-            let (width, height) = image.dimensions();
-            Icon::from_rgba(image.into_raw(), width, height).unwrap()
-        };
         let window_attributes = Window::default_attributes()
             .with_title(WINDOW_TITLE)
-            .with_inner_size(winit::dpi::PhysicalSize::new(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT))
-            .with_window_icon(Some(icon));
+            .with_inner_size(winit::dpi::PhysicalSize::new(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT));
         let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
+
+        // Set the icon after window creation
+        let icon = {
+            // Try to load PNG first
+            match image::load_from_memory(include_bytes!("../../assets/logo.png")) {
+                Ok(image) => {
+                    // Resize to 32x32 for icon
+                    let resized = image.resize(32, 32, image::imageops::FilterType::Lanczos3);
+                    let rgba = resized.to_rgba8();
+                    let (width, height) = rgba.dimensions();
+                    eprintln!("Loaded and resized PNG: {}x{}", width, height);
+                    match Icon::from_rgba(rgba.into_raw(), width, height) {
+                        Ok(icon) => Some(icon),
+                        Err(e) => {
+                            eprintln!("Failed to create icon from PNG: {:?}", e);
+                            None
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Failed to load logo.png: {:?}, trying ICO", e);
+                    // Fallback to ICO
+                    match image::load_from_memory(include_bytes!("../../assets/logo.ico")) {
+                        Ok(image) => {
+                            // Resize to 32x32 for icon
+                            let resized = image.resize(32, 32, image::imageops::FilterType::Lanczos3);
+                            let rgba = resized.to_rgba8();
+                            let (width, height) = rgba.dimensions();
+                            eprintln!("Loaded and resized ICO: {}x{}", width, height);
+                            match Icon::from_rgba(rgba.into_raw(), width, height) {
+                                Ok(icon) => Some(icon),
+                                Err(e) => {
+                                    eprintln!("Failed to create icon from ICO: {:?}", e);
+                                    None
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("Failed to load logo.ico: {:?}", e);
+                            None
+                        }
+                    }
+                }
+            }
+        };
+        if let Some(icon) = icon {
+            window.set_window_icon(Some(icon));
+        }
 
         self.state.window = Some(Arc::clone(&window));
         self.init_gpu(window);

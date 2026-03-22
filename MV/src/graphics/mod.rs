@@ -1,11 +1,9 @@
 //! Graphics and GPU management
 
-pub mod context;
-pub mod buffers;
-pub mod analysis;
-pub mod pipeline;
+pub mod init;
+pub mod resources;
+pub mod update;
 pub mod render;
-pub mod gpu;
 
-// Re-export the main GPU resources for now
-pub use gpu::*;
+// Re-export the main GPU resources
+pub use resources::GpuResources;

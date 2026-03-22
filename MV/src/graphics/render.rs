@@ -1,47 +1,44 @@
-//! Rendering logic and GPU command execution
+//! GPU render functions
 
 use crate::common::error::AppResult;
-use crate::visualization::Plugin;
+use crate::config::constants::*;
 
-/// Renderer for handling GPU rendering operations
-pub struct Renderer {
-    pub egui_renderer: egui_wgpu::Renderer,
-}
+use super::GpuResources;
 
-impl Renderer {
-    pub fn new(device: &wgpu::Device, surface_format: wgpu::TextureFormat) -> Self {
-        let egui_renderer = egui_wgpu::Renderer::new(device, surface_format, None, 1);
-        Self { egui_renderer }
-    }
-
+impl GpuResources {
     pub fn render(
         &mut self,
-        surface: &wgpu::Surface,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        plugins: &[Plugin],
         plugin_index: usize,
-        bind_group: &wgpu::BindGroup,
-        particle_render_pipeline: &wgpu::RenderPipeline,
-        quad_buffer: &wgpu::Buffer,
-        particle_buffer: &wgpu::Buffer,
         paint_jobs: &[egui::ClippedPrimitive],
         screen_desc: &egui_wgpu::ScreenDescriptor,
         textures_delta: &egui::TexturesDelta,
     ) -> AppResult<()> {
-        let output = surface.get_current_texture()?;
+        let output = self.surface.get_current_texture()?;
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
         // Update egui textures
         for (id, image_delta) in &textures_delta.set {
-            self.egui_renderer.update_texture(device, queue, *id, image_delta);
+            self.egui_renderer.update_texture(&self.device, &self.queue, *id, image_delta);
         }
 
-        // Compute particles - TODO: This should be handled separately
+        // Compute particles
+        {
+            let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: None, timestamp_writes: None });
+            cpass.set_pipeline(&self.compute_pipeline);
+            cpass.set_bind_group(0, &self.particle_bind_group, &[]);
+            cpass.dispatch_workgroups(NUM_PARTICLES / COMPUTE_WORKGROUP_SIZE + 1, 1, 1);
+        }
 
         // Update egui vertex/index buffers
-        self.egui_renderer.update_buffers(device, queue, &mut encoder, paint_jobs, screen_desc);
+        self.egui_renderer.update_buffers(&self.device, &self.queue, &mut encoder, paint_jobs, screen_desc);
+
+        // Collect references to avoid borrow conflicts inside the render pass block
+        let plugin_pipeline = &self.plugins[plugin_index].render_pipeline;
+        let bind_group = &self.bind_group;
+        let particle_render_pipeline = &self.particle_render_pipeline;
+        let quad_buffer = &self.buffers.quad_buffer;
+        let particle_buffer = &self.buffers.particle_buffer;
 
         // Render pass
         {
@@ -61,7 +58,7 @@ impl Renderer {
             });
 
             // Visualization plugin
-            rpass.set_pipeline(&plugins[plugin_index].render_pipeline);
+            rpass.set_pipeline(plugin_pipeline);
             rpass.set_bind_group(0, bind_group, &[]);
             rpass.draw(0..3, 0..1);
 
@@ -70,13 +67,13 @@ impl Renderer {
             rpass.set_vertex_buffer(0, quad_buffer.slice(..));
             rpass.set_vertex_buffer(1, particle_buffer.slice(..));
             rpass.set_bind_group(0, bind_group, &[]);
-            rpass.draw(0..4, 0..crate::config::constants::NUM_PARTICLES);
+            rpass.draw(0..4, 0..NUM_PARTICLES);
 
             // egui overlay
             self.egui_renderer.render(&mut rpass, paint_jobs, screen_desc);
         }
 
-        queue.submit(std::iter::once(encoder.finish()));
+        self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
 
         // Free egui textures
