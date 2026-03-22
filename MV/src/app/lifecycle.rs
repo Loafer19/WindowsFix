@@ -1,69 +1,70 @@
 use super::*;
-use crate::plugin::ShaderInfo;
+use crate::visualization::ShaderInfo;
+use crate::config::settings::{BeatSensitivity, ColorScheme};
 
 impl App {
     pub fn init_gpu(&mut self, window: Arc<Window>) {
         let gpu = pollster::block_on(GpuResources::new(window)).expect("Failed to initialize GPU");
-        self.gpu = Some(gpu);
+        self.state.gpu = Some(gpu);
     }
 
     pub fn init_audio(&mut self, device_index: usize) -> AppResult<()> {
-        if let Some(device) = self.devices.get(device_index) {
+        if let Some(device) = self.state.devices.get(device_index) {
             let audio_handler = AudioHandler::new(device.clone())?;
-            self.audio = Some(audio_handler);
+            self.state.audio = Some(audio_handler);
             if let Some(name) = device.name().ok() {
-                self.settings.selected_device = Some(name);
-                self.settings.save().ok();
+                self.state.settings.selected_device = Some(name);
+                self.state.settings.save().ok();
             }
             Ok(())
         } else {
-            Err(crate::error::AppError::Audio("Invalid device index".to_string()))
+            Err(crate::common::error::AppError::Audio("Invalid device index".to_string()))
         }
     }
 
     pub(crate) fn rebuild_plugin_cache(&mut self) {
-        if let Some(gpu) = &self.gpu {
-            self.enabled_plugin_cache = gpu.plugins.iter()
+        if let Some(gpu) = &self.state.gpu {
+            self.state.enabled_plugin_cache = gpu.plugins.iter()
                 .enumerate()
-                .filter(|(_, p)| !self.settings.disabled_plugins.contains(&p.name))
+                .filter(|(_, p)| !self.state.settings.disabled_plugins.contains(&p.name))
                 .map(|(i, _)| i)
                 .collect();
         }
     }
 
     pub(crate) fn navigate_visualization(&mut self, step: isize) {
-        if self.enabled_plugin_cache.is_empty() {
+        if self.state.enabled_plugin_cache.is_empty() {
             self.rebuild_plugin_cache();
         }
-        if self.enabled_plugin_cache.is_empty() { return; }
+        if self.state.enabled_plugin_cache.is_empty() { return; }
 
-        let current_pos = self.enabled_plugin_cache.iter()
-            .position(|&i| i == self.current_plugin_index)
+        let current_pos = self.state.enabled_plugin_cache.iter()
+            .position(|&i| i == self.state.current_plugin_index)
             .unwrap_or(0);
 
-        let n = self.enabled_plugin_cache.len();
+        let n = self.state.enabled_plugin_cache.len();
         let next_pos = ((current_pos as isize + step).rem_euclid(n as isize)) as usize;
-        self.current_plugin_index = self.enabled_plugin_cache[next_pos];
+        self.state.current_plugin_index = self.state.enabled_plugin_cache[next_pos];
 
-        self.transition_active = true;
-        self.transition_time = 0.0;
-        self.last_mode_switch = Instant::now();
+        self.state.transition_active = true;
+        self.state.transition_time = 0.0;
+        self.state.last_mode_switch = Instant::now();
 
         #[cfg(debug_assertions)]
-        if let Some(gpu) = &self.gpu {
-            eprintln!("Switched to plugin: {}", gpu.plugins[self.current_plugin_index].name);
+        if let Some(gpu) = &self.state.gpu {
+            eprintln!("Switched to plugin: {}", gpu.plugins[self.state.current_plugin_index].name);
         }
     }
 
     pub fn update(&mut self) {
-        if let Some(timer) = self.info_timer {
+        if let Some(timer) = self.state.info_timer {
             if timer.elapsed() > Duration::from_secs(10) {
-                self.show_info = false;
-                self.info_timer = None;
+                self.state.show_info = false;
+                self.state.info_timer = None;
             }
         }
 
-        if let Some(index) = self.pending_device_index.take() {
+        if let Some(index) = self.state.pending_device_index.take() {
             if let Err(e) = self.init_audio(index) {
                 eprintln!("Failed to initialize audio: {:?}", e);
             }
@@ -72,12 +73,12 @@ impl App {
         // Sync opacity slider → transparency_level and re-apply if transparent
         #[cfg(target_os = "windows")]
         {
-            let slider_level = (self.settings.transparency * MAX_TRANSPARENCY_ALPHA as f32)
+            let slider_level = (self.state.settings.transparency * MAX_TRANSPARENCY_ALPHA as f32)
                 .clamp(MIN_TRANSPARENCY_ALPHA as f32, MAX_TRANSPARENCY_ALPHA as f32) as u8;
-            if slider_level != self.transparency_level {
-                self.transparency_level = slider_level;
-                if self.window_mode.needs_layered() {
-                    if let Some(window) = self.window.as_ref().map(Arc::clone) {
+            if slider_level != self.state.transparency_level {
+                self.state.transparency_level = slider_level;
+                if self.state.window_mode.needs_layered() {
+                    if let Some(window) = self.state.window.as_ref().map(Arc::clone) {
                         self.apply_transparency(&window);
                     }
                 }
@@ -85,86 +86,86 @@ impl App {
         }
 
         // Auto-switch modes (skip disabled plugins)
-        if self.settings.auto_switch_modes {
-            let switch_dur = Duration::from_secs_f32(self.settings.mode_switch_seconds);
-            if self.last_mode_switch.elapsed() > switch_dur {
+        if self.state.settings.auto_switch_modes {
+            let switch_dur = Duration::from_secs_f32(self.state.settings.mode_switch_seconds);
+            if self.state.last_mode_switch.elapsed() > switch_dur {
                 self.navigate_visualization(1);
             }
         }
 
         // Advance transition using actual elapsed time
-        if self.transition_active {
-            let dt = self.last_frame_time.elapsed().as_secs_f32();
-            self.transition_time += dt;
-            if self.transition_time >= 0.5 {
-                self.transition_active = false;
+        if self.state.transition_active {
+            let dt = self.state.last_frame_time.elapsed().as_secs_f32();
+            self.state.transition_time += dt;
+            if self.state.transition_time >= 0.5 {
+                self.state.transition_active = false;
             }
         }
-        self.last_frame_time = Instant::now();
+        self.state.last_frame_time = Instant::now();
 
-        if let Some(gpu) = &mut self.gpu {
-            self.uniforms.mode = self.current_plugin_index as u32;
-            self.uniforms.smoothing_factor = self.settings.smoothing_factor;
-            self.uniforms.gain = self.settings.gain;
-            self.uniforms.color = self.settings.scheme_color();
+        if let Some(gpu) = &mut self.state.gpu {
+            self.state.uniforms.mode = self.state.current_plugin_index as u32;
+            self.state.uniforms.smoothing_factor = self.state.settings.smoothing_factor;
+            self.state.uniforms.gain = self.state.settings.gain;
+            self.state.uniforms.color = self.state.settings.scheme_color();
 
-            if let Some(audio) = &self.audio {
+            if let Some(audio) = &self.state.audio {
                 let audio_guard = audio.buffer.lock().unwrap();
-                let beat_threshold = match self.settings.beat_sensitivity {
+                let beat_threshold = match self.state.settings.beat_sensitivity {
                     BeatSensitivity::Low    => BEAT_THRESHOLD_HIGH,
                     BeatSensitivity::Medium => BEAT_THRESHOLD_MED,
                     BeatSensitivity::High   => BEAT_THRESHOLD_LOW,
                 };
-                gpu.update(&self.uniforms, &audio_guard, beat_threshold);
+                gpu.update(&self.state.uniforms, &audio_guard, beat_threshold);
             } else {
-                let silence = vec![0.0f32; crate::constants::SAMPLE_SIZE];
-                gpu.update(&self.uniforms, &silence, BEAT_THRESHOLD_MED);
+                let silence = vec![0.0f32; crate::config::constants::SAMPLE_SIZE];
+                gpu.update(&self.state.uniforms, &silence, BEAT_THRESHOLD_MED);
             }
         }
     }
 
     pub fn render(&mut self) -> AppResult<()> {
-        let (width, height) = self.gpu.as_ref()
+        let (width, height) = self.state.gpu.as_ref()
             .map(|g| (g.config.width, g.config.height))
             .unwrap_or((DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT));
 
-        let plugin_name = self.gpu.as_ref()
-            .and_then(|g| g.plugins.get(self.current_plugin_index))
+        let plugin_name = self.state.gpu.as_ref()
+            .and_then(|g| g.plugins.get(self.state.current_plugin_index))
             .map(|p| p.name.clone())
             .unwrap_or_default();
 
-        let beat_intensity = self.gpu.as_ref().map(|g| g.beat_intensity).unwrap_or(0.0);
+        let beat_intensity = self.state.gpu.as_ref().map(|g| g.beat_intensity).unwrap_or(0.0);
 
         let plugin_groups = {
-            let names: Vec<String> = self.gpu.as_ref()
+            let names: Vec<String> = self.state.gpu.as_ref()
                 .map(|g| g.plugins.iter().map(|p| p.name.clone()).collect())
                 .unwrap_or_default();
             build_plugin_groups(&names)
         };
 
         // Collect shader browser entries before closure
-        let shader_browser_entries: Vec<(usize, String, Option<&'static ShaderInfo>)> = self.gpu.as_ref()
+        let shader_browser_entries: Vec<(usize, String, Option<&'static ShaderInfo>)> = self.state.gpu.as_ref()
             .map(|g| g.plugins.iter().enumerate()
                 .map(|(i, p)| (i, p.name.clone(), p.info))
                 .collect())
             .unwrap_or_default();
 
-        let current_plugin_idx = self.current_plugin_index;
+        let current_plugin_idx = self.state.current_plugin_index;
 
-        let mut settings_copy = self.settings.clone();
-        let mut show_info = self.show_info;
-        let window_mode = self.window_mode;
-        let mut show_shader_browser = self.show_shader_browser;
+        let mut settings_copy = self.state.settings.clone();
+        let mut show_info = self.state.show_info;
+        let window_mode = self.state.window_mode;
+        let mut show_shader_browser = self.state.show_shader_browser;
         let mut new_plugin_index: Option<usize> = None;
 
-        let mut raw_input = std::mem::take(&mut self.egui_raw_input);
+        let mut raw_input = std::mem::take(&mut self.state.egui_raw_input);
         if raw_input.screen_rect.is_none() {
             raw_input.screen_rect = Some(egui::Rect::from_min_size(
                 egui::Pos2::ZERO,
                 egui::vec2(width as f32, height as f32),
             ));
         }
-        let full_output = self.egui_ctx.run(raw_input, |ctx| {
+        let full_output = self.state.egui_ctx.run(raw_input, |ctx| {
             // ── Controls / Help panel (F1) ────────────────────────────────────
             egui::Window::new("ℹ Controls")
                 .open(&mut show_info)
@@ -264,24 +265,24 @@ impl App {
                 });
 
             // ── Audio device selector (F3) ────────────────────────────────────
-            let mut pending = self.pending_device_index;
+            let mut pending = self.state.pending_device_index;
             egui::Window::new("🎤 Audio Device")
-                .open(&mut self.show_device_selection)
+                .open(&mut self.state.show_device_selection)
                 .resizable(false)
                 .collapsible(false)
                 .frame(egui::Frame::window(&ctx.style()).shadow(egui::epaint::Shadow::NONE))
                 .show(ctx, |ui| {
                     ui.label("Choose an audio input device:");
                     ui.separator();
-                    for (i, device) in self.devices.iter().enumerate() {
+                    for (i, device) in self.state.devices.iter().enumerate() {
                         let name = device.name().unwrap_or_else(|_| "Unknown".to_string());
-                        let is_selected = self.settings.selected_device.as_ref() == Some(&name);
+                        let is_selected = self.state.settings.selected_device.as_ref() == Some(&name);
                         if ui.selectable_label(is_selected, &name).clicked() {
                             pending = Some(i);
                         }
                     }
                 });
-            self.pending_device_index = pending;
+            self.state.pending_device_index = pending;
 
             // ── Shader Browser (F4) ──────────────────────────────────────────
             egui::Window::new("🎭 Shaders")
@@ -380,34 +381,34 @@ impl App {
                 });
         });
 
-        self.show_info = show_info;
-        self.settings = settings_copy;
-        self.show_shader_browser = show_shader_browser;
+        self.state.show_info = show_info;
+        self.state.settings = settings_copy;
+        self.state.show_shader_browser = show_shader_browser;
         if let Some(idx) = new_plugin_index {
-            self.current_plugin_index = idx;
-            self.transition_active = true;
-            self.transition_time = 0.0;
-            self.last_mode_switch = Instant::now();
+            self.state.current_plugin_index = idx;
+            self.state.transition_active = true;
+            self.state.transition_time = 0.0;
+            self.state.last_mode_switch = Instant::now();
         }
 
         let ppp = full_output.pixels_per_point;
-        let paint_jobs = self.egui_ctx.tessellate(full_output.shapes, ppp);
+        let paint_jobs = self.state.egui_ctx.tessellate(full_output.shapes, ppp);
         let screen_desc = egui_wgpu::ScreenDescriptor {
             size_in_pixels: [width, height],
             pixels_per_point: ppp,
         };
 
-        if let Some(gpu) = &mut self.gpu {
-            gpu.render(self.current_plugin_index, &paint_jobs, &screen_desc, &full_output.textures_delta)?;
+        if let Some(gpu) = &mut self.state.gpu {
+            gpu.render(self.state.current_plugin_index, &paint_jobs, &screen_desc, &full_output.textures_delta)?;
         }
 
         Ok(())
     }
 
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
-        if let Some(gpu) = &mut self.gpu {
+        if let Some(gpu) = &mut self.state.gpu {
             gpu.resize(new_size);
-            self.uniforms.resolution = [new_size.width as f32, new_size.height as f32];
+            self.state.uniforms.resolution = [new_size.width as f32, new_size.height as f32];
         }
     }
 
@@ -417,16 +418,16 @@ impl App {
             if let raw_window_handle::RawWindowHandle::Win32(win32_handle) = window_handle.as_ref() {
                 let hwnd = HWND(win32_handle.hwnd.get() as isize);
                 unsafe {
-                    if self.window_mode.needs_layered() {
+                    if self.state.window_mode.needs_layered() {
                         let mut ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
                         ex_style |= WS_EX_LAYERED.0 as isize;
-                        if self.window_mode.needs_click_through() {
+                        if self.state.window_mode.needs_click_through() {
                             ex_style |= WS_EX_TRANSPARENT.0 as isize;
                         } else {
                             ex_style &= !(WS_EX_TRANSPARENT.0 as isize);
                         }
                         SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex_style);
-                        let alpha = (self.settings.transparency * MAX_TRANSPARENCY_ALPHA as f32)
+                        let alpha = (self.state.settings.transparency * MAX_TRANSPARENCY_ALPHA as f32)
                             .clamp(MIN_TRANSPARENCY_ALPHA as f32, MAX_TRANSPARENCY_ALPHA as f32) as u8;
                         let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), alpha, LAYERED_WINDOW_ATTRIBUTES_FLAGS(2));
                     } else {
@@ -459,15 +460,15 @@ impl App {
     pub(crate) fn adjust_transparency_level(&mut self, increase: bool) {
         let step = TRANSPARENCY_STEP as f32 / MAX_TRANSPARENCY_ALPHA as f32;
         if increase {
-            self.settings.transparency = (self.settings.transparency + step).min(1.0);
+            self.state.settings.transparency = (self.state.settings.transparency + step).min(1.0);
         } else {
-            self.settings.transparency = (self.settings.transparency - step).max(0.1);
+            self.state.settings.transparency = (self.state.settings.transparency - step).max(0.1);
         }
-        self.transparency_level = (self.settings.transparency * MAX_TRANSPARENCY_ALPHA as f32) as u8;
+        self.state.transparency_level = (self.state.settings.transparency * MAX_TRANSPARENCY_ALPHA as f32) as u8;
         #[cfg(debug_assertions)]
-        eprintln!("Opacity: {}%", (self.settings.transparency * 100.0) as u32);
-        if self.window_mode.needs_layered() {
-            if let Some(window) = self.window.as_ref().map(Arc::clone) {
+        eprintln!("Opacity: {}%", (self.state.settings.transparency * 100.0) as u32);
+        if self.state.window_mode.needs_layered() {
+            if let Some(window) = self.state.window.as_ref().map(Arc::clone) {
                 self.apply_transparency(&window);
             }
         }

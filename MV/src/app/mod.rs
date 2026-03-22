@@ -2,13 +2,13 @@
 
 pub mod lifecycle;
 pub mod event_handler;
+pub mod state;
 
-use crate::audio::AudioHandler;
-use crate::constants::*;
-use crate::error::AppResult;
-use crate::gpu::GpuResources;
-use crate::settings::{AppSettings, BeatSensitivity, ColorScheme};
-use crate::types::VisUniforms;
+use crate::input::audio::AudioHandler;
+use crate::config::constants::*;
+use crate::common::error::AppResult;
+use crate::graphics::GpuResources;
+use crate::config::settings::{AppSettings, BeatSensitivity, ColorScheme};
 use cpal::traits::DeviceTrait;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -31,135 +31,117 @@ use windows::Win32::UI::WindowsAndMessaging::{
     GetWindowLongPtrW, SetWindowLongPtrW, GWL_EXSTYLE, WS_EX_LAYERED, WS_EX_TRANSPARENT,
 };
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Window mode state machine
-// ──────────────────────────────────────────────────────────────────────────────
-
-/// The three distinct compositing modes the window can be in.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum WindowMode {
-    #[default]
-    Normal,
-    Transparent,
-    Overlay,
-}
-
-impl WindowMode {
-    pub fn next(self) -> Self {
-        match self {
-            Self::Normal       => Self::Transparent,
-            Self::Transparent  => Self::Overlay,
-            Self::Overlay      => Self::Normal,
-        }
-    }
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Normal      => "Normal",
-            Self::Transparent => "Transparent",
-            Self::Overlay     => "Overlay",
-        }
-    }
-
-    pub fn needs_layered(self) -> bool {
-        matches!(self, Self::Transparent | Self::Overlay)
-    }
-
-    #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
-    pub fn needs_click_through(self) -> bool {
-        matches!(self, Self::Overlay)
-    }
-
-    #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
-    pub fn needs_topmost(self) -> bool {
-        matches!(self, Self::Overlay)
-    }
-}
+pub use state::{AppState, WindowMode};
 
 pub struct App {
-    pub(crate) window: Option<Arc<Window>>,
-    pub(crate) gpu: Option<GpuResources>,
-    pub(crate) audio: Option<AudioHandler>,
-    pub(crate) devices: Vec<cpal::Device>,
-    pub(crate) uniforms: VisUniforms,
-    pub(crate) current_plugin_index: usize,
-    pub(crate) window_mode: WindowMode,
-    pub(crate) transparency_level: u8,
-    pub(crate) show_info: bool,
-    pub(crate) info_timer: Option<Instant>,
-    pub(crate) show_device_selection: bool,
-    pub(crate) pending_device_index: Option<usize>,
-    pub(crate) settings: AppSettings,
-    pub(crate) egui_ctx: egui::Context,
-    pub(crate) egui_raw_input: egui::RawInput,
-    pub(crate) egui_pointer_pos: egui::Pos2,
-    pub(crate) current_modifiers: winit::keyboard::ModifiersState,
-    pub(crate) transition_time: f32,
-    pub(crate) transition_active: bool,
-    pub(crate) last_mode_switch: Instant,
-    pub(crate) last_frame_time: Instant,
-    pub(crate) enabled_plugin_cache: Vec<usize>,
-    pub(crate) show_shader_browser: bool,
+    pub(crate) state: AppState,
 }
 
 impl App {
     pub fn new(devices: Vec<cpal::Device>, settings: AppSettings) -> Self {
-        let mut audio = None;
-        let mut show_device_selection = false;
+        Self {
+            state: AppState::new(devices, settings),
+        }
+    }
+}
 
-        if let Some(selected_name) = &settings.selected_device {
-            if let Some(index) = devices.iter().position(|d| d.name().ok().as_ref() == Some(selected_name)) {
-                if let Ok(audio_handler) = AudioHandler::new(devices[index].clone()) {
-                    audio = Some(audio_handler);
-                } else {
-                    show_device_selection = true;
-                }
-            } else {
-                show_device_selection = true;
-            }
+impl ApplicationHandler for App {
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        let icon = {
+            let image = image::load_from_memory(include_bytes!("../../assets/logo.png")).unwrap().to_rgba8();
+            let (width, height) = image.dimensions();
+            Icon::from_rgba(image.into_raw(), width, height).unwrap()
+        };
+        let window_attributes = Window::default_attributes()
+            .with_title(WINDOW_TITLE)
+            .with_inner_size(winit::dpi::PhysicalSize::new(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT))
+            .with_window_icon(Some(icon));
+        let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
+
+        self.state.window = Some(Arc::clone(&window));
+        self.init_gpu(window);
+        self.state.show_info = false;
+    }
+
+    fn window_event(&mut self, event_loop: &ActiveEventLoop, window_id: winit::window::WindowId, event: WindowEvent) {
+        if let Some(window) = &self.state.window {
+            if window.id() != window_id { return; }
         } else {
-            show_device_selection = true;
+            return;
         }
 
-        Self {
-            window: None,
-            gpu: None,
-            audio,
-            devices,
-            uniforms: VisUniforms {
-                color: DEFAULT_COLOR,
-                intensity: DEFAULT_INTENSITY,
-                padding1: 0.0,
-                resolution: [DEFAULT_WINDOW_WIDTH as f32, DEFAULT_WINDOW_HEIGHT as f32],
-                mode: 0,
-                padding3a: 0,
-                padding3b: 0,
-                padding3c: 0,
-                padding2: [0; 3],
-                time: 0.0,
-                bass_energy: 0.0,
-                smoothing_factor: 0.1,
-                gain: 1.5,
-                beat_intensity: 0.0,
-            },
-            current_plugin_index: 0,
-            window_mode: WindowMode::Normal,
-            transparency_level: DEFAULT_TRANSPARENCY,
-            show_info: false,
-            info_timer: None,
-            show_device_selection,
-            pending_device_index: None,
-            settings,
-            egui_ctx: egui::Context::default(),
-            egui_raw_input: egui::RawInput::default(),
-            egui_pointer_pos: egui::Pos2::ZERO,
-            current_modifiers: winit::keyboard::ModifiersState::default(),
-            transition_time: 0.0,
-            transition_active: false,
-            last_mode_switch: Instant::now(),
-            last_frame_time: Instant::now(),
-            enabled_plugin_cache: Vec::new(),
-            show_shader_browser: false,
+        self.forward_to_egui(&event);
+
+        match event {
+            WindowEvent::Resized(new_size) => self.resize(new_size),
+            WindowEvent::ModifiersChanged(modifiers) => self.state.current_modifiers = modifiers.state(),
+            WindowEvent::CloseRequested => event_loop.exit(),
+            WindowEvent::KeyboardInput {
+                event: KeyEvent { physical_key: PhysicalKey::Code(KeyCode::Escape), state: ElementState::Pressed, .. },
+                ..
+            } => {
+                if let Some(window) = &self.state.window {
+                    if window.fullscreen().is_some() {
+                        window.set_fullscreen(None);
+                        window.set_cursor_visible(true);
+                        window.set_minimized(true);
+                    } else {
+                        event_loop.exit();
+                    }
+                } else {
+                    event_loop.exit();
+                }
+            }
+            WindowEvent::KeyboardInput {
+                event: KeyEvent { physical_key: PhysicalKey::Code(KeyCode::F1), state: ElementState::Pressed, .. },
+                ..
+            } => {
+                let old_show_info = self.state.show_info;
+                self.state.show_info = !old_show_info;
+                if self.state.show_info {
+                    self.state.info_timer = Some(Instant::now());
+                } else {
+                    self.state.info_timer = None;
+                }
+            }
+            WindowEvent::KeyboardInput {
+                event: KeyEvent { physical_key: PhysicalKey::Code(KeyCode::F2), state: ElementState::Pressed, .. },
+                ..
+            } => {
+                self.state.settings.show_settings = !self.state.settings.show_settings;
+            }
+            WindowEvent::KeyboardInput {
+                event: KeyEvent { physical_key: PhysicalKey::Code(KeyCode::F4), state: ElementState::Pressed, .. },
+                ..
+            } => {
+                self.state.show_shader_browser = !self.state.show_shader_browser;
+            }
+            WindowEvent::KeyboardInput {
+                event: KeyEvent { physical_key, state: ElementState::Pressed, .. },
+                ..
+            } => {
+                self.handle_key_press(physical_key);
+            }
+            WindowEvent::RedrawRequested => {
+                self.update();
+                if let Err(e) = self.render() {
+                    eprintln!("Render error: {:?}", e);
+                    match e {
+                        crate::common::error::AppError::Surface(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+                            self.resize(self.state.window.as_ref().unwrap().inner_size());
+                        }
+                        crate::common::error::AppError::Surface(wgpu::SurfaceError::OutOfMemory) => event_loop.exit(),
+                        _ => {}
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+        if let Some(window) = &self.state.window {
+            window.request_redraw();
         }
     }
 }
@@ -169,7 +151,7 @@ impl App {
 // ──────────────────────────────────────────────────────────────────────────────
 
 fn plugin_group(name: &str) -> &'static str {
-    crate::plugin::shader_info(name)
+    crate::visualization::shader_info(name)
         .map(|info| info.category.label())
         .unwrap_or("✨ Abstract")
 }

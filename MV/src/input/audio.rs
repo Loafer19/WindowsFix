@@ -1,7 +1,7 @@
 //! Audio input handling using cpal
 
-use crate::constants::SAMPLE_SIZE;
-use crate::error::{AppError, AppResult};
+use crate::config::constants::SAMPLE_SIZE;
+use crate::common::error::{AppError, AppResult};
 use cpal::traits::{DeviceTrait, StreamTrait};
 use std::sync::{Arc, Mutex};
 

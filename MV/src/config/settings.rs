@@ -66,7 +66,7 @@ impl AppSettings {
     pub fn new() -> Self {
         Self {
             show_settings: false,
-            transparency: crate::constants::DEFAULT_TRANSPARENCY as f32 / 255.0,
+            transparency: crate::config::constants::DEFAULT_TRANSPARENCY as f32 / 255.0,
             auto_switch_modes: false,
             mode_switch_seconds: 30.0,
             smoothing_factor: 0.1,

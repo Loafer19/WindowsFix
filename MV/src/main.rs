@@ -1,18 +1,17 @@
 //! Music Visualizer - Main entry point
 
 mod app;
-mod audio;
 mod input;
-mod constants;
-mod error;
-mod gpu;
-mod plugin;
-mod settings;
-mod types;
+mod common;
+mod ui;
+mod graphics;
+mod visualization;
+mod config;
+mod platform;
 
 use crate::app::App;
-use crate::error::{AppError, AppResult};
-use crate::settings::AppSettings;
+use crate::common::error::{AppError, AppResult};
+use crate::config::settings::AppSettings;
 use winit::event_loop::EventLoop;
 use cpal::traits::{DeviceTrait, HostTrait};
 
