@@ -37,7 +37,7 @@ Rust(Tauri) + Vue3 application to manage Windows Services
 |-------|-------|
 | ![web](./.github/screenshots/sm/modals_service.jpg) | ![web](./.github/screenshots/sm/modals_preset.jpg) |
 
-## Network Handler (NetSentry)
+## NetSentry (NS)
 
 A Tauri + Vue3 application for real-time network monitoring and traffic shaping
 
