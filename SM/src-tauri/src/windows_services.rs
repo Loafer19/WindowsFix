@@ -6,6 +6,7 @@ use windows::core::PCWSTR;
 use windows::Win32::System::Services::*;
 
 use crate::models::{ServiceInfo, WindowsService};
+use crate::windows_api::{to_wide_string, ScHandle};
 
 pub fn services_json_path() -> Option<PathBuf> {
     std::env::current_exe()
@@ -59,6 +60,7 @@ pub async fn get_windows_services() -> Result<Vec<WindowsService>, String> {
     unsafe {
         let scm = OpenSCManagerW(None, None, SC_MANAGER_ENUMERATE_SERVICE)
             .map_err(|e| format!("Failed to open SCM: {:?}", e))?;
+        let _scm_guard = ScHandle::new(scm);
 
         let mut bytes_needed: u32 = 0;
         let mut services_returned: u32 = 0;
@@ -78,13 +80,11 @@ pub async fn get_windows_services() -> Result<Vec<WindowsService>, String> {
         if let Err(e) = result {
             // ERROR_MORE_DATA (0x800700EA) is expected when buffer is too small
             if e.code().0 != 0x800700EAu32 as i32 {
-                CloseServiceHandle(scm).ok();
                 return Err(format!("Failed to get buffer size: {:?}", e));
             }
         }
 
         if bytes_needed == 0 {
-            CloseServiceHandle(scm).ok();
             return Ok(vec![]);
         }
 
@@ -109,7 +109,6 @@ pub async fn get_windows_services() -> Result<Vec<WindowsService>, String> {
                     buffer.resize(bytes_needed as usize, 0);
                     continue;
                 } else {
-                    CloseServiceHandle(scm).ok();
                     return Err(format!("Failed to enumerate services: {:?}", e));
                 }
             } else {
@@ -138,29 +137,9 @@ pub async fn get_windows_services() -> Result<Vec<WindowsService>, String> {
                 PCWSTR::from_raw(service_info.lpServiceName.as_ptr() as *const _),
                 SERVICE_QUERY_CONFIG,
             ) {
-                let mut config_size: u32 = 0;
-                let _ = QueryServiceConfigW(service, None, 0, &mut config_size);
-
-                let st = if config_size > 0 {
-                    let mut config_buffer = vec![0u8; config_size as usize];
-                    if QueryServiceConfigW(
-                        service,
-                        Some(config_buffer.as_mut_ptr() as *mut _),
-                        config_size,
-                        &mut config_size,
-                    )
-                    .is_ok()
-                    {
-                        let config = &*(config_buffer.as_ptr() as *const QUERY_SERVICE_CONFIGW);
-                        startup_type_str(config.dwStartType)
-                    } else {
-                        "Unknown"
-                    }
-                } else {
-                    "Unknown"
-                };
+                let st = query_startup_type(service);
                 CloseServiceHandle(service).ok();
-                st.to_string()
+                st
             } else {
                 "Unknown".to_string()
             };
@@ -178,40 +157,39 @@ pub async fn get_windows_services() -> Result<Vec<WindowsService>, String> {
             });
         }
 
-        CloseServiceHandle(scm).ok();
         Ok(services)
     }
 }
 
-pub fn start_windows_service(service_name: &str) -> Result<WindowsService, String> {
+/// Common helper: open the SCM and the named service, run `f`, then query and return the updated state.
+fn apply_service_operation<F>(
+    service_name: &str,
+    access: SERVICE_ACCESS_RIGHTS,
+    f: F,
+) -> Result<WindowsService, String>
+where
+    F: FnOnce(SC_HANDLE) -> Result<(), String>,
+{
     unsafe {
         let scm = OpenSCManagerW(None, None, SC_MANAGER_CONNECT)
             .map_err(|e| format!("Failed to open SCM: {:?}", e))?;
+        let _scm_guard = ScHandle::new(scm);
 
-        let service_name_wide: Vec<u16> = service_name
-            .encode_utf16()
-            .chain(std::iter::once(0))
-            .collect();
-        let service = OpenServiceW(
-            scm,
-            PCWSTR::from_raw(service_name_wide.as_ptr()),
-            SERVICE_START | SERVICE_QUERY_STATUS | SERVICE_QUERY_CONFIG,
-        )
-        .map_err(|e| format!("Failed to open service: {:?}", e))?;
+        let name_wide = to_wide_string(service_name);
+        let service = OpenServiceW(scm, PCWSTR::from_raw(name_wide.as_ptr()), access)
+            .map_err(|e| format!("Failed to open service '{}': {:?}", service_name, e))?;
+        let service_guard = ScHandle::new(service);
 
-        StartServiceW(service, None).map_err(|e| format!("Failed to start service: {:?}", e))?;
+        f(service_guard.get())?;
 
         let mut status = SERVICE_STATUS::default();
-        let status_str = if QueryServiceStatus(service, &mut status).is_ok() {
+        let status_str = if QueryServiceStatus(service_guard.get(), &mut status).is_ok() {
             service_status_str(status.dwCurrentState).to_string()
         } else {
             "Unknown".to_string()
         };
 
-        let startup_type = query_startup_type(service);
-
-        CloseServiceHandle(service).ok();
-        CloseServiceHandle(scm).ok();
+        let startup_type = query_startup_type(service_guard.get());
 
         Ok(WindowsService {
             name: service_name.to_string(),
@@ -221,99 +199,51 @@ pub fn start_windows_service(service_name: &str) -> Result<WindowsService, Strin
             info: ServiceInfo { description: None, explained: None, recommendation: None },
         })
     }
+}
+
+pub fn start_windows_service(service_name: &str) -> Result<WindowsService, String> {
+    apply_service_operation(
+        service_name,
+        SERVICE_START | SERVICE_QUERY_STATUS | SERVICE_QUERY_CONFIG,
+        |service| unsafe {
+            StartServiceW(service, None)
+                .map_err(|e| format!("Failed to start service: {:?}", e))
+        },
+    )
 }
 
 pub fn stop_windows_service(service_name: &str) -> Result<WindowsService, String> {
-    unsafe {
-        let scm = OpenSCManagerW(None, None, SC_MANAGER_CONNECT)
-            .map_err(|e| format!("Failed to open SCM: {:?}", e))?;
-
-        let service_name_wide: Vec<u16> = service_name
-            .encode_utf16()
-            .chain(std::iter::once(0))
-            .collect();
-        let service = OpenServiceW(
-            scm,
-            PCWSTR::from_raw(service_name_wide.as_ptr()),
-            SERVICE_STOP | SERVICE_QUERY_STATUS | SERVICE_QUERY_CONFIG,
-        )
-        .map_err(|e| format!("Failed to open service: {:?}", e))?;
-
-        let mut status = SERVICE_STATUS::default();
-        ControlService(service, SERVICE_CONTROL_STOP, &mut status)
-            .map_err(|e| format!("Failed to stop service: {:?}", e))?;
-
-        let status_str = if QueryServiceStatus(service, &mut status).is_ok() {
-            service_status_str(status.dwCurrentState).to_string()
-        } else {
-            "Unknown".to_string()
-        };
-
-        let startup_type = query_startup_type(service);
-
-        CloseServiceHandle(service).ok();
-        CloseServiceHandle(scm).ok();
-
-        Ok(WindowsService {
-            name: service_name.to_string(),
-            display_name: service_name.to_string(),
-            status: status_str,
-            startup_type,
-            info: ServiceInfo { description: None, explained: None, recommendation: None },
-        })
-    }
+    apply_service_operation(
+        service_name,
+        SERVICE_STOP | SERVICE_QUERY_STATUS | SERVICE_QUERY_CONFIG,
+        |service| unsafe {
+            let mut status = SERVICE_STATUS::default();
+            ControlService(service, SERVICE_CONTROL_STOP, &mut status)
+                .map_err(|e| format!("Failed to stop service: {:?}", e))
+        },
+    )
 }
 
 pub fn restart_windows_service(service_name: &str) -> Result<WindowsService, String> {
-    unsafe {
-        let scm = OpenSCManagerW(None, None, SC_MANAGER_CONNECT)
-            .map_err(|e| format!("Failed to open SCM: {:?}", e))?;
-
-        let service_name_wide: Vec<u16> = service_name
-            .encode_utf16()
-            .chain(std::iter::once(0))
-            .collect();
-        let service = OpenServiceW(
-            scm,
-            PCWSTR::from_raw(service_name_wide.as_ptr()),
-            SERVICE_START | SERVICE_STOP | SERVICE_QUERY_STATUS | SERVICE_QUERY_CONFIG,
-        )
-        .map_err(|e| format!("Failed to open service: {:?}", e))?;
-
-        // Stop if running; log but don't fail so we can still attempt the start
-        let mut status = SERVICE_STATUS::default();
-        if QueryServiceStatus(service, &mut status).is_ok()
-            && status.dwCurrentState == SERVICE_RUNNING
-        {
-            if let Err(e) = ControlService(service, SERVICE_CONTROL_STOP, &mut status) {
-                eprintln!("Warning: failed to stop service before restart: {:?}", e);
+    apply_service_operation(
+        service_name,
+        SERVICE_START | SERVICE_STOP | SERVICE_QUERY_STATUS | SERVICE_QUERY_CONFIG,
+        |service| unsafe {
+            // Stop if currently running; log but don't fail so we can still start
+            let mut status = SERVICE_STATUS::default();
+            if QueryServiceStatus(service, &mut status).is_ok()
+                && status.dwCurrentState == SERVICE_RUNNING
+            {
+                if let Err(e) = ControlService(service, SERVICE_CONTROL_STOP, &mut status) {
+                    eprintln!("Warning: failed to stop service before restart: {:?}", e);
+                }
+                // Give the SCM time to begin stopping
+                std::thread::sleep(std::time::Duration::from_millis(500));
             }
-            // Give the SCM up to 500 ms to begin stopping; a proper solution would poll
-            // SERVICE_STOP_PENDING but this is sufficient for typical services.
-            std::thread::sleep(std::time::Duration::from_millis(500));
-        }
-
-        StartServiceW(service, None).map_err(|e| format!("Failed to start service: {:?}", e))?;
-
-        let status_str = if QueryServiceStatus(service, &mut status).is_ok() {
-            service_status_str(status.dwCurrentState).to_string()
-        } else {
-            "Unknown".to_string()
-        };
-
-        let startup_type = query_startup_type(service);
-
-        CloseServiceHandle(service).ok();
-        CloseServiceHandle(scm).ok();
-
-        Ok(WindowsService {
-            name: service_name.to_string(),
-            display_name: service_name.to_string(),
-            status: status_str,
-            startup_type,
-            info: ServiceInfo { description: None, explained: None, recommendation: None },
-        })
-    }
+            StartServiceW(service, None)
+                .map_err(|e| format!("Failed to start service: {:?}", e))
+        },
+    )
 }
 
 pub fn set_windows_service_startup_type(
@@ -329,78 +259,71 @@ pub fn set_windows_service_startup_type(
         _ => return Err(format!("Unknown startup type: {}", startup_type)),
     };
 
-    unsafe {
-        let scm = OpenSCManagerW(None, None, SC_MANAGER_CONNECT)
-            .map_err(|e| format!("Failed to open SCM: {:?}", e))?;
-
-        let service_name_wide: Vec<u16> = service_name
-            .encode_utf16()
-            .chain(std::iter::once(0))
-            .collect();
-        let service = OpenServiceW(
-            scm,
-            PCWSTR::from_raw(service_name_wide.as_ptr()),
-            SERVICE_CHANGE_CONFIG | SERVICE_QUERY_STATUS | SERVICE_QUERY_CONFIG,
-        )
-        .map_err(|e| format!("Failed to open service: {:?}", e))?;
-
-        // Query existing config to preserve service type and error control
-        let mut config_size: u32 = 0;
-        let _ = QueryServiceConfigW(service, None, 0, &mut config_size);
-        let (current_service_type, current_error_control) = if config_size > 0 {
-            let mut buf = vec![0u8; config_size as usize];
-            if QueryServiceConfigW(
+    apply_service_operation(
+        service_name,
+        SERVICE_CHANGE_CONFIG | SERVICE_QUERY_STATUS | SERVICE_QUERY_CONFIG,
+        move |service| unsafe {
+            // Query existing config to preserve service type and error control
+            let (service_type, error_control) = read_service_type_and_error_control(service);
+            ChangeServiceConfigW(
                 service,
-                Some(buf.as_mut_ptr() as *mut _),
-                config_size,
-                &mut config_size,
+                service_type,
+                start_type,
+                error_control,
+                None, None, None, None, None, None, None,
             )
-            .is_ok()
+            .map_err(|e| format!("Failed to change startup type: {:?}", e))
+        },
+    )
+}
+
+pub fn disable_windows_service(service_name: &str) -> Result<WindowsService, String> {
+    apply_service_operation(
+        service_name,
+        SERVICE_CHANGE_CONFIG | SERVICE_STOP | SERVICE_QUERY_STATUS | SERVICE_QUERY_CONFIG,
+        |service| unsafe {
+            // Stop if currently running
+            let mut status = SERVICE_STATUS::default();
+            if QueryServiceStatus(service, &mut status).is_ok()
+                && status.dwCurrentState == SERVICE_RUNNING
             {
-                let cfg = &*(buf.as_ptr() as *const QUERY_SERVICE_CONFIGW);
-                (cfg.dwServiceType, cfg.dwErrorControl)
-            } else {
-                (SERVICE_WIN32_OWN_PROCESS, SERVICE_ERROR_NORMAL)
+                ControlService(service, SERVICE_CONTROL_STOP, &mut status).ok();
             }
-        } else {
-            (SERVICE_WIN32_OWN_PROCESS, SERVICE_ERROR_NORMAL)
-        };
+            // Preserve service type and error control, only change start type
+            let (service_type, error_control) = read_service_type_and_error_control(service);
+            ChangeServiceConfigW(
+                service,
+                service_type,
+                SERVICE_DISABLED,
+                error_control,
+                None, None, None, None, None, None, None,
+            )
+            .map_err(|e| format!("Failed to disable service: {:?}", e))
+        },
+    )
+}
 
-        ChangeServiceConfigW(
+/// Query the current service type and error control, falling back to safe defaults.
+unsafe fn read_service_type_and_error_control(
+    service: SC_HANDLE,
+) -> (SERVICE_TYPE, SERVICE_ERROR_CONTROL) {
+    let mut config_size: u32 = 0;
+    let _ = QueryServiceConfigW(service, None, 0, &mut config_size);
+    if config_size > 0 {
+        let mut buf = vec![0u8; config_size as usize];
+        if QueryServiceConfigW(
             service,
-            current_service_type,
-            start_type,
-            current_error_control,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
+            Some(buf.as_mut_ptr() as *mut _),
+            config_size,
+            &mut config_size,
         )
-        .map_err(|e| format!("Failed to change startup type: {:?}", e))?;
-
-        let mut status = SERVICE_STATUS::default();
-        let status_str = if QueryServiceStatus(service, &mut status).is_ok() {
-            service_status_str(status.dwCurrentState).to_string()
-        } else {
-            "Unknown".to_string()
-        };
-
-        let actual_type = query_startup_type(service);
-
-        CloseServiceHandle(service).ok();
-        CloseServiceHandle(scm).ok();
-
-        Ok(WindowsService {
-            name: service_name.to_string(),
-            display_name: service_name.to_string(),
-            status: status_str,
-            startup_type: actual_type,
-            info: ServiceInfo { description: None, explained: None, recommendation: None },
-        })
+        .is_ok()
+        {
+            let cfg = &*(buf.as_ptr() as *const QUERY_SERVICE_CONFIGW);
+            return (cfg.dwServiceType, cfg.dwErrorControl);
+        }
     }
+    (SERVICE_WIN32_OWN_PROCESS, SERVICE_ERROR_NORMAL)
 }
 
 fn query_startup_type(service: SC_HANDLE) -> String {
@@ -424,83 +347,6 @@ fn query_startup_type(service: SC_HANDLE) -> String {
         } else {
             "Unknown".to_string()
         }
-    }
-}
-
-pub fn disable_windows_service(service_name: &str) -> Result<WindowsService, String> {
-    unsafe {
-        let scm = OpenSCManagerW(None, None, SC_MANAGER_CONNECT)
-            .map_err(|e| format!("Failed to open SCM: {:?}", e))?;
-
-        let service_name_wide = service_name
-            .encode_utf16()
-            .chain(std::iter::once(0))
-            .collect::<Vec<u16>>();
-        let service = OpenServiceW(
-            scm,
-            PCWSTR::from_raw(service_name_wide.as_ptr()),
-            SERVICE_CHANGE_CONFIG | SERVICE_STOP | SERVICE_QUERY_STATUS | SERVICE_QUERY_CONFIG,
-        )
-        .map_err(|e| format!("Failed to open service: {:?}", e))?;
-
-        let mut status = SERVICE_STATUS::default();
-        if QueryServiceStatus(service, &mut status).is_ok() && status.dwCurrentState == SERVICE_RUNNING {
-            ControlService(service, SERVICE_CONTROL_STOP, &mut status).ok();
-        }
-
-        ChangeServiceConfigW(
-            service,
-            SERVICE_WIN32_OWN_PROCESS,
-            SERVICE_DISABLED,
-            SERVICE_ERROR_NORMAL,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-        )
-        .map_err(|e| format!("Failed to disable service: {:?}", e))?;
-
-        let mut status = SERVICE_STATUS::default();
-        let status_str = if QueryServiceStatus(service, &mut status).is_ok() {
-            service_status_str(status.dwCurrentState).to_string()
-        } else {
-            "Unknown".to_string()
-        };
-
-        let mut config_size: u32 = 0;
-        let _ = QueryServiceConfigW(service, None, 0, &mut config_size);
-        let mut config_buffer = vec![0u8; config_size as usize];
-        let startup_type = if QueryServiceConfigW(
-            service,
-            Some(config_buffer.as_mut_ptr() as *mut _),
-            config_size,
-            &mut config_size,
-        )
-        .is_ok()
-        {
-            let config = &*(config_buffer.as_ptr() as *const QUERY_SERVICE_CONFIGW);
-            startup_type_str(config.dwStartType).to_string()
-        } else {
-            "Unknown".to_string()
-        };
-
-        CloseServiceHandle(service).ok();
-        CloseServiceHandle(scm).ok();
-
-        Ok(WindowsService {
-            name: service_name.to_string(),
-            display_name: service_name.to_string(),
-            status: status_str,
-            startup_type,
-            info: ServiceInfo {
-                description: None,
-                explained: None,
-                recommendation: None,
-            },
-        })
     }
 }
 
