@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 /// Application configuration loaded from environment variables with sensible defaults.
+#[allow(dead_code)]
 pub struct AppConfig {
     pub cache_ttl: Duration,
     pub ai_timeout: Duration,

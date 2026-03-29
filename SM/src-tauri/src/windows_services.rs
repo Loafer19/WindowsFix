@@ -1,18 +1,10 @@
 use std::collections::HashMap;
-use std::fs;
-use std::path::PathBuf;
 
 use windows::core::PCWSTR;
 use windows::Win32::System::Services::*;
 
 use crate::models::{ServiceInfo, WindowsService};
 use crate::windows_api::{to_wide_string, ScHandle};
-
-pub fn services_json_path() -> Option<PathBuf> {
-    std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().and_then(|p| p.parent()).map(|p| p.join("services.json")))
-}
 
 fn service_status_str(state: SERVICE_STATUS_CURRENT_STATE) -> &'static str {
     match state {
@@ -57,14 +49,18 @@ pub fn get_default_service_info(service_name: &str, defaults: &HashMap<String, S
 }
 
 pub async fn get_windows_services() -> Result<Vec<WindowsService>, String> {
+    eprintln!("DEBUG: Starting get_windows_services");
     unsafe {
+        eprintln!("DEBUG: Opening SCM");
         let scm = OpenSCManagerW(None, None, SC_MANAGER_ENUMERATE_SERVICE)
             .map_err(|e| format!("Failed to open SCM: {:?}", e))?;
         let _scm_guard = ScHandle::new(scm);
+        eprintln!("DEBUG: SCM opened successfully");
 
         let mut bytes_needed: u32 = 0;
         let mut services_returned: u32 = 0;
 
+        eprintln!("DEBUG: Calling EnumServicesStatusExW to get buffer size");
         let result = EnumServicesStatusExW(
             scm,
             SC_ENUM_PROCESS_INFO,
@@ -84,13 +80,26 @@ pub async fn get_windows_services() -> Result<Vec<WindowsService>, String> {
             }
         }
 
+        eprintln!("DEBUG: Initial bytes_needed: {}", bytes_needed);
         if bytes_needed == 0 {
+            eprintln!("DEBUG: No services found");
             return Ok(vec![]);
         }
 
         let mut buffer = vec![0u8; bytes_needed as usize];
+        let mut attempts = 0;
+        const MAX_ATTEMPTS: usize = 10;
 
+        eprintln!("DEBUG: Starting enumeration loop");
         loop {
+            attempts += 1;
+            eprintln!("DEBUG: Attempt {} of {}", attempts, MAX_ATTEMPTS);
+            if attempts > MAX_ATTEMPTS {
+                eprintln!("DEBUG: Too many attempts");
+                return Err("Too many attempts to enumerate services".to_string());
+            }
+
+            eprintln!("DEBUG: Calling EnumServicesStatusExW with buffer");
             let result = EnumServicesStatusExW(
                 scm,
                 SC_ENUM_PROCESS_INFO,
@@ -105,13 +114,16 @@ pub async fn get_windows_services() -> Result<Vec<WindowsService>, String> {
 
             if let Err(e) = result {
                 if e.code().0 == 0x800700EAu32 as i32 {
+                    eprintln!("DEBUG: Buffer too small, resizing to {}", bytes_needed * 2);
                     bytes_needed *= 2;
                     buffer.resize(bytes_needed as usize, 0);
                     continue;
                 } else {
+                    eprintln!("DEBUG: Failed to enumerate services: {:?}", e);
                     return Err(format!("Failed to enumerate services: {:?}", e));
                 }
             } else {
+                eprintln!("DEBUG: Enumeration successful, services_returned: {}", services_returned);
                 break;
             }
         }
@@ -121,9 +133,13 @@ pub async fn get_windows_services() -> Result<Vec<WindowsService>, String> {
             services_returned as usize,
         );
 
+        eprintln!("DEBUG: Processing {} services", service_infos.len());
         let mut services = Vec::new();
 
-        for service_info in service_infos {
+        for (i, service_info) in service_infos.iter().enumerate() {
+            if i % 50 == 0 {
+                eprintln!("DEBUG: Processing service {} of {}", i + 1, service_infos.len());
+            }
             let name = service_info.lpServiceName.to_string().map_err(|_| "Invalid service name")?;
             let mut display_name = service_info.lpDisplayName.to_string().map_err(|_| "Invalid display name")?;
             if display_name.is_empty() {
@@ -141,6 +157,7 @@ pub async fn get_windows_services() -> Result<Vec<WindowsService>, String> {
                 CloseServiceHandle(service).ok();
                 st
             } else {
+                eprintln!("DEBUG: Failed to open service {} for startup type", name);
                 "Unknown".to_string()
             };
 
@@ -157,6 +174,7 @@ pub async fn get_windows_services() -> Result<Vec<WindowsService>, String> {
             });
         }
 
+        eprintln!("DEBUG: Finished processing all services, total: {}", services.len());
         Ok(services)
     }
 }
@@ -348,33 +366,4 @@ fn query_startup_type(service: SC_HANDLE) -> String {
             "Unknown".to_string()
         }
     }
-}
-
-pub fn save_services_info(services_info: &HashMap<String, ServiceInfo>) {
-    if let Some(file_path) = services_json_path() {
-        match serde_json::to_string_pretty(services_info) {
-            Ok(json) => {
-                if let Err(e) = fs::write(&file_path, json) {
-                    eprintln!("Failed to write services info to file: {}", e);
-                }
-            }
-            Err(e) => eprintln!("Failed to serialize services info: {}", e),
-        }
-    }
-}
-
-pub fn load_services_info() -> HashMap<String, ServiceInfo> {
-    if let Some(file_path) = services_json_path() {
-        if file_path.exists() {
-            match fs::read_to_string(&file_path) {
-                Ok(content) => match serde_json::from_str::<HashMap<String, ServiceInfo>>(&content) {
-                    Ok(data) => return data,
-                    Err(e) => eprintln!("Failed to parse services info JSON: {}", e),
-                },
-                Err(e) => eprintln!("Failed to read services info file: {}", e),
-            }
-        }
-    }
-
-    HashMap::new()
 }

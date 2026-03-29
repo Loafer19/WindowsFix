@@ -18,9 +18,9 @@ export function useHistory() {
 
         return history.value.filter(entry => {
             if (filterType.value === 'service') {
-                return entry.entry_type.type === 'service'
+                return entry.entry_type?.type === 'service'
             } else if (filterType.value === 'startup_app') {
-                return entry.entry_type.type === 'startup_app'
+                return entry.entry_type?.type === 'startup_app'
             }
             return true
         })
@@ -28,8 +28,8 @@ export function useHistory() {
 
     const stats = computed(() => ({
         total: history.value.length,
-        services: history.value.filter(h => h.entry_type.type === 'service').length,
-        startupApps: history.value.filter(h => h.entry_type.type === 'startup_app').length,
+        services: history.value.filter(h => h.entry_type?.type === 'service').length,
+        startupApps: history.value.filter(h => h.entry_type?.type === 'startup_app').length,
     }))
 
     const loadHistory = async () => {

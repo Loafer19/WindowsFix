@@ -15,7 +15,7 @@ use tauri::State;
 use ai::fetch_service_info_from_ai;
 use config::AppConfig;
 use history::HistoryEntry;
-use models::{AppState, ServiceInfo, ServicesCache, StartupApp, StartupLocation, WindowsService};
+use models::{AppState, ServiceInfo, ServicesCache, StartupApp, WindowsService};
 use windows_services::{
     disable_windows_service, get_default_service_info, get_windows_services,
     restart_windows_service, set_windows_service_startup_type, start_windows_service,
@@ -27,14 +27,17 @@ const MAX_HISTORY_ENTRIES: u32 = 500;
 
 #[tauri::command]
 async fn get_services(state: State<'_, AppState>) -> Result<Vec<WindowsService>, String> {
+    eprintln!("DEBUG: get_services called");
     let needs_refresh = {
         let cache = state.services_cache.lock().unwrap();
         let ttl = cache.ttl;
-        cache.data.is_empty()
+        let needs = cache.data.is_empty()
             || SystemTime::now()
                 .duration_since(cache.last_updated)
                 .unwrap_or(std::time::Duration::MAX)
-                > ttl
+                > ttl;
+        eprintln!("DEBUG: Cache has {} services, needs_refresh: {}", cache.data.len(), needs);
+        needs
     };
 
     if needs_refresh {
@@ -49,6 +52,7 @@ async fn get_services(state: State<'_, AppState>) -> Result<Vec<WindowsService>,
     }
 
     let cache = state.services_cache.lock().unwrap();
+    eprintln!("DEBUG: Returning {} services from cache", cache.data.len());
     Ok(cache.data.clone())
 }
 
@@ -366,12 +370,20 @@ fn record_service_history(
 }
 
 async fn refresh_services_cache(state: &AppState) -> Result<Vec<WindowsService>, String> {
+    eprintln!("DEBUG: Starting refresh_services_cache");
     match get_windows_services().await {
         Ok(services) => {
+            eprintln!("DEBUG: Got {} services from Windows API", services.len());
             let mut info_map = state.services_info.lock().unwrap();
+            eprintln!("DEBUG: Starting to process services");
+            let services_len = services.len();
             let processed_services: Vec<WindowsService> = services
                 .into_iter()
-                .map(|service| {
+                .enumerate()
+                .map(|(i, service)| {
+                    if i % 50 == 0 {
+                        eprintln!("DEBUG: Processing service info {} of {}", i + 1, services_len);
+                    }
                     let name = service.name.split('_').next().unwrap_or(&service.name).to_string();
 
                     let info = if let Some(existing_info) = info_map.get(&name) {
@@ -396,8 +408,10 @@ async fn refresh_services_cache(state: &AppState) -> Result<Vec<WindowsService>,
                 })
                 .collect();
 
+            eprintln!("DEBUG: Finished processing services, saving to DB");
             let db = state.db.lock().unwrap();
             database::save_all_service_info(&db, &info_map);
+            eprintln!("DEBUG: Saved service info to DB");
 
             Ok(processed_services)
         }
@@ -409,12 +423,15 @@ async fn refresh_services_cache(state: &AppState) -> Result<Vec<WindowsService>,
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    eprintln!("DEBUG: Starting Tauri app");
     if let Err(e) = dotenvy::dotenv() {
         println!("Warning: Could not load .env file: {}", e);
     }
 
     let config = AppConfig::from_env();
+    eprintln!("DEBUG: Config loaded");
 
+    eprintln!("DEBUG: Opening database");
     let db = match database::open_db() {
         Ok(conn) => conn,
         Err(e) => {
@@ -422,10 +439,15 @@ pub fn run() {
             database::open_memory_db().expect("In-memory SQLite should always work")
         }
     };
+    eprintln!("DEBUG: Database opened");
 
+    eprintln!("DEBUG: Loading service info from DB");
     let services_info = database::load_service_info(&db, config.service_info_ttl.as_secs());
+    eprintln!("DEBUG: Loaded {} service info entries", services_info.len());
 
+    eprintln!("DEBUG: Loading history from DB");
     let history = database::load_history(&db, MAX_HISTORY_ENTRIES);
+    eprintln!("DEBUG: Loaded {} history entries", history.len());
 
     let app_state = AppState {
         services_cache: Mutex::new(ServicesCache {

@@ -108,7 +108,7 @@ fn read_registry_startup(hive: HKEY, location: StartupLocation) -> Result<Vec<St
             index += 1;
         }
 
-        RegCloseKey(key).ok();
+        let _ = RegCloseKey(key).ok();
     }
 
     Ok(apps)
@@ -185,7 +185,7 @@ fn remove_registry_entry(hive: HKEY, name: &str) -> Result<(), String> {
             .ok()
             .map_err(|e| format!("Failed to delete registry value '{}': {:?}", name, e));
 
-        RegCloseKey(key).ok();
+        let _ = RegCloseKey(key).ok();
         result
     }
 }
@@ -252,7 +252,7 @@ fn add_registry_entry(hive: HKEY, name: &str, command: &str) -> Result<(), Strin
         .ok()
         .map_err(|e| format!("Failed to set registry value '{}': {:?}", name, e));
 
-        RegCloseKey(key).ok();
+        let _ = RegCloseKey(key).ok();
         result
     }
 }

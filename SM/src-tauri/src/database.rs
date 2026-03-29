@@ -109,9 +109,18 @@ pub fn save_service_info(conn: &Connection, name: &str, info: &ServiceInfo) {
 
 /// Persist all entries in the given map, updating each timestamp.
 pub fn save_all_service_info(conn: &Connection, services_info: &HashMap<String, ServiceInfo>) {
+    eprintln!("DEBUG: save_all_service_info called with {} entries", services_info.len());
+    let tx = conn.unchecked_transaction().unwrap();
+    let mut count = 0;
     for (name, info) in services_info {
-        save_service_info(conn, name, info);
+        count += 1;
+        if count % 50 == 0 {
+            eprintln!("DEBUG: Saved {} service infos", count);
+        }
+        save_service_info(&tx, name, info);
     }
+    tx.commit().unwrap();
+    eprintln!("DEBUG: Finished saving all service infos");
 }
 
 /// Append a history entry to the database.
