@@ -16,8 +16,8 @@
             </div>
 
             <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
-                <StatCard icon="arrowDownCircle" label="Download" :value="formatSpeed(proc.downloadBps)" color="primary" size="lg" />
-                <StatCard icon="arrowUpCircle" label="Upload" :value="formatSpeed(proc.uploadBps)" color="info" size="lg" />
+                <StatCard icon="arrowDownCircle" label="Download" :value="formatSpeed(proc.downloadBps)" color="primary" size="base" />
+                <StatCard icon="arrowUpCircle" label="Upload" :value="formatSpeed(proc.uploadBps)" color="info" size="base" />
                 <StatCard icon="arrowDownCircle" label="Total DL" :value="formatBytes(proc.totalDownloadBytes)" color="primary" size="base" />
                 <StatCard icon="arrowUpCircle" label="Total UL" :value="formatBytes(proc.totalUploadBytes)" color="info" size="base" />
             </div>

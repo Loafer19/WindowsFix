@@ -9,7 +9,7 @@ mod settings;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
-use tauri::Manager;
+use tauri::{Listener, Manager};
 
 use commands::*;
 use metrics::Metrics;
@@ -17,13 +17,6 @@ use models::AppState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Initialize structured logging
-    let _ = tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::INFO)
-        .try_init();
-
-    tracing::info!("NetSentry starting up");
-
     // Load persisted settings and 24h global history
     let (saved_settings, saved_notif) = settings::load_settings_and_notifications();
     let saved_data = db::load();
@@ -113,9 +106,27 @@ pub fn run() {
                         }
                     }
                 })
-                .build(app)?;
+                 .build(app)?;
 
-            // Hide main window on startup if "Start minimized" is configured
+             // Listen for deep link events to handle toast actions
+             let app_handle = app.handle().clone();
+             app.listen("tauri://deep-link", move |event: tauri::Event| {
+                 let url = event.payload();
+                 if url.starts_with("netsentry://block/") {
+                     let pid_str = &url["netsentry://block/".len()..];
+                     if let Ok(pid) = pid_str.parse::<u32>() {
+                         let app_handle = app_handle.clone();
+                         tauri::async_runtime::spawn(async move {
+                             let state = app_handle.state::<Arc<AppState>>();
+                             if let Err(e) = commands::block_process(pid, state).await {
+                                 eprintln!("Failed to block process {}: {}", pid, e);
+                             }
+                         });
+                     }
+                 }
+             });
+
+             // Hide main window on startup if "Start minimized" is configured
             let state = app.state::<Arc<AppState>>();
             if state.settings.lock().unwrap().start_minimized {
                 if let Some(window) = app.get_webview_window("main") {

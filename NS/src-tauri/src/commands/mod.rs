@@ -1,9 +1,11 @@
 pub mod network;
+pub mod notifications;
 pub mod process;
 pub mod settings;
 pub mod windivert;
 
 pub use network::*;
+pub use notifications::*;
 pub use process::*;
 pub use settings::*;
 pub use windivert::*;

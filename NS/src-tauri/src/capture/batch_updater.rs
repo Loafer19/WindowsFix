@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::db;
-use crate::history::{current_unix_hour, HOURLY_BUCKETS};
+use crate::history::HOURLY_BUCKETS;
 use crate::models::AppState;
 
 /// Advance the hourly history in a background thread when an hour boundary is crossed.
@@ -65,7 +65,7 @@ pub fn advance_hourly_background(
             .collect(),
     };
 
-    if let Err(e) = db::save(&data) {
-        tracing::error!("Disk I/O error saving hourly data: {e}");
+    if let Err(_e) = db::save(&data) {
+        // Disk I/O error saving hourly data
     }
 }

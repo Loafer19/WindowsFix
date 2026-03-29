@@ -36,18 +36,18 @@ jobs:
           fi
 
           # Check SM version
-          if [ -f SM/package.json ]; then
-            sm_version=$(jq -r '.version' SM/package.json)
-            previous_sm=$(git show HEAD~1:SM/package.json 2>/dev/null | jq -r '.version' || echo "")
+          if [ -f SM/src-tauri/Cargo.toml ]; then
+            sm_version=$(grep '^version = ' SM/src-tauri/Cargo.toml | sed 's/version = "\(.*\)"/\1/')
+            previous_sm=$(git show HEAD~1:SM/src-tauri/Cargo.toml 2>/dev/null | grep '^version = ' | sed 's/version = "\(.*\)"/\1/' || echo "")
             if [ "$sm_version" != "$previous_sm" ]; then
               version_changed=true
             fi
           fi
 
-          # Check NetworkHandler version
-          if [ -f NS/package.json ]; then
-            ns_version=$(jq -r '.version' NS/package.json)
-            previous_ns=$(git show HEAD~1:NS/package.json 2>/dev/null | jq -r '.version' || echo "")
+          # Check NS version
+          if [ -f NS/src-tauri/Cargo.toml ]; then
+            ns_version=$(grep '^version = ' NS/src-tauri/Cargo.toml | sed 's/version = "\(.*\)"/\1/')
+            previous_ns=$(git show HEAD~1:NS/src-tauri/Cargo.toml 2>/dev/null | grep '^version = ' | sed 's/version = "\(.*\)"/\1/' || echo "")
             if [ "$ns_version" != "$previous_ns" ]; then
               version_changed=true
             fi
@@ -181,7 +181,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: netsentry-portable-${{ matrix.platform }}
-          path: NetworkHandler/src-tauri/target/release/NetSentry_${{ needs.check-version.outputs.ns_version }}-portable.exe
+          path: NS/src-tauri/target/release/NetSentry_${{ needs.check-version.outputs.ns_version }}-portable.exe
 
   release:
     needs: [check-version, build]
@@ -199,8 +199,8 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: v${{ needs.check-version.outputs.sm_version }}
-          name: Version ${{ needs.check-version.outputs.sm_version }}
+          tag_name: v${{ needs.check-version.outputs.ns_version }}
+          name: Version ${{ needs.check-version.outputs.ns_version }}
           draft: false
           prerelease: false
           files: artifacts/**/*

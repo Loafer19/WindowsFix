@@ -1,10 +1,10 @@
 <template>
     <div>
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-            <StatCard icon="arrowDownCircle" label="24h Download" :value="formatBytes(totals.downloadBytes)" color="primary" />
-            <StatCard icon="arrowUpCircle" label="24h Upload" :value="formatBytes(totals.uploadBytes)" color="info" />
-            <StatCard icon="arrowDownCircle" label="Download" :value="formatSpeed(currentDownload)" color="primary" />
-            <StatCard icon="arrowUpCircle" label="Upload" :value="formatSpeed(currentUpload)" color="info" />
+            <StatCard icon="arrowDownCircle" label="24h Download" :value="formatBytes(totals.downloadBytes)" color="primary" size="lg" />
+            <StatCard icon="arrowUpCircle" label="24h Upload" :value="formatBytes(totals.uploadBytes)" color="info" size="lg" />
+            <StatCard icon="arrowDownCircle" label="Download" :value="formatSpeed(currentDownload)" color="primary" size="lg" />
+            <StatCard icon="arrowUpCircle" label="Upload" :value="formatSpeed(currentUpload)" color="info" size="lg" />
         </div>
 
         <div class="bg-base-200 rounded-lg p-4">

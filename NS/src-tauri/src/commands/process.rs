@@ -20,8 +20,6 @@ fn exe_path_for_pid_cached(pid: u32, state: &AppState) -> String {
 pub enum ProcessError {
     #[error("Lock poisoned: {0}")]
     Lock(String),
-    #[error("Windows API error: {0}")]
-    Windows(String),
 }
 
 type ProcessResult<T> = Result<T, ProcessError>;
@@ -121,8 +119,6 @@ pub async fn set_process_limit(
 #[tauri::command]
 pub async fn block_process(pid: u32, state: State<'_, Arc<AppState>>) -> Result<(), String> {
     let exe_path = exe_path_for_pid_cached(pid, &state);
-    tracing::info!("Blocking process: {} (PID {})", exe_path, pid);
-
     state.blocked_exes.lock().unwrap().insert(exe_path.clone());
 
     // Propagate block to all currently-known PIDs with the same exe path
@@ -146,8 +142,6 @@ pub async fn block_process(pid: u32, state: State<'_, Arc<AppState>>) -> Result<
 #[tauri::command]
 pub async fn unblock_process(pid: u32, state: State<'_, Arc<AppState>>) -> Result<(), String> {
     let exe_path = exe_path_for_pid_cached(pid, &state);
-    tracing::info!("Unblocking process: {} (PID {})", exe_path, pid);
-
     state.blocked_exes.lock().unwrap().remove(&exe_path);
 
     // Remove block from all currently-known PIDs with the same exe path
@@ -172,8 +166,6 @@ pub async fn unblock_process(pid: u32, state: State<'_, Arc<AppState>>) -> Resul
 pub async fn kill_process(pid: u32) -> Result<(), String> {
     use windows::Win32::Foundation::CloseHandle;
     use windows::Win32::System::Threading::{OpenProcess, TerminateProcess, PROCESS_TERMINATE};
-
-    tracing::info!("Terminating process PID {}", pid);
 
     unsafe {
         let handle = OpenProcess(PROCESS_TERMINATE, false, pid)

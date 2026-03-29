@@ -3,50 +3,6 @@ use crate::models::WinDivertStatus;
 // Embedded WinDivert driver file — included at compile time.
 static WINDRIVER_SYS: &[u8] = include_bytes!("../../drivers/WinDivert64.sys");
 
-/// Show a Windows toast notification using the Windows Runtime API.
-fn show_windows_notification(title: &str, message: &str) -> Result<(), String> {
-    use windows::core::HSTRING;
-    use windows::Data::Xml::Dom::*;
-    use windows::UI::Notifications::*;
-
-    let toast_manager =
-        ToastNotificationManager::CreateToastNotifierWithId(&HSTRING::from("NetSentry"))
-            .map_err(|e| format!("Failed to create toast notifier: {:?}", e))?;
-
-    let xml_doc = XmlDocument::new()
-        .map_err(|e| format!("Failed to create XML document: {:?}", e))?;
-
-    let toast_xml = format!(
-        r#"<toast>
-            <visual>
-                <binding template="ToastGeneric">
-                    <text>{}</text>
-                    <text>{}</text>
-                </binding>
-            </visual>
-        </toast>"#,
-        title, message
-    );
-
-    xml_doc
-        .LoadXml(&HSTRING::from(toast_xml))
-        .map_err(|e| format!("Failed to load XML: {:?}", e))?;
-
-    let toast = ToastNotification::CreateToastNotification(&xml_doc)
-        .map_err(|e| format!("Failed to create toast: {:?}", e))?;
-
-    toast_manager
-        .Show(&toast)
-        .map_err(|e| format!("Failed to show toast: {:?}", e))?;
-
-    Ok(())
-}
-
-#[tauri::command]
-pub async fn show_native_notification(title: String, message: String) -> Result<(), String> {
-    show_windows_notification(&title, &message)
-}
-
 #[tauri::command]
 pub async fn check_windivert_status() -> Result<WinDivertStatus, String> {
     use std::path::Path;
@@ -107,8 +63,6 @@ pub async fn install_windivert() -> Result<(), String> {
     let drivers_path = Path::new(r"C:\Windows\System32\drivers\WinDivert64.sys");
     fs::write(drivers_path, WINDRIVER_SYS)
         .map_err(|e| format!("Failed to write WinDivert64.sys to drivers: {}", e))?;
-
-    tracing::info!("Installing WinDivert service");
 
     // Create service using Windows APIs
     unsafe {

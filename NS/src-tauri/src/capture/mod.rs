@@ -22,15 +22,12 @@ pub fn capture_loop(state: Arc<AppState>, metrics: Arc<Metrics>) {
     let handle = loop {
         match WinDivert::network("ip", 0, WinDivertFlags::new()) {
             Ok(h) => break h,
-            Err(e) => {
-                tracing::warn!("WinDivert open failed: {e}; retrying in 5s");
+            Err(_e) => {
                 metrics.capture_errors.fetch_add(1, Ordering::Relaxed);
                 std::thread::sleep(Duration::from_secs(5));
             }
         }
     };
-
-    tracing::info!("Capture loop started");
 
     // --- Thread-Local State (No Locks needed for these) ---
     let mut pid_cache: PortPidCache = HashMap::new();
@@ -96,9 +93,8 @@ pub fn capture_loop(state: Arc<AppState>, metrics: Arc<Metrics>) {
         // 3. Receive Packet
         let packet = match handle.recv(Some(&mut recv_buf)) {
             Ok(p) => p,
-            Err(e) => {
+            Err(_e) => {
                 metrics.capture_errors.fetch_add(1, Ordering::Relaxed);
-                tracing::debug!("Packet recv error: {e}");
                 continue;
             }
         };
