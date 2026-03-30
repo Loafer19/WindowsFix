@@ -5,4 +5,7 @@ import Icon from './components/Icon.vue'
 
 const app = createApp(App)
 app.component('Icon', Icon)
-app.mount('body')
+app.mount('#app')
+
+// Hide loading screen after Vue mounts
+document.getElementById('loading-screen').style.display = 'none'

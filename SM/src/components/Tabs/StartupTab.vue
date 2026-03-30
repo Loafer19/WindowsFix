@@ -7,24 +7,22 @@
                     Analytics
                 </div>
                 <div class="collapse-content">
-                    <div class="mb-4">
-                        <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-                            <div class="bg-base-200 rounded-lg p-4">
-                                <div class="text-sm font-medium text-base-content/70">Total Apps</div>
-                                <div class="text-3xl font-bold text-primary">{{ stats.total }}</div>
-                            </div>
-                            <div class="bg-base-200 rounded-lg p-4">
-                                <div class="text-sm font-medium text-base-content/70">Enabled</div>
-                                <div class="text-3xl font-bold text-success">{{ stats.enabled }}</div>
-                            </div>
-                            <div class="bg-base-200 rounded-lg p-4">
-                                <div class="text-sm font-medium text-base-content/70">Disabled</div>
-                                <div class="text-3xl font-bold text-warning">{{ stats.disabled }}</div>
-                            </div>
-                            <div class="bg-base-200 rounded-lg p-4">
-                                <div class="text-sm font-medium text-base-content/70">Registry</div>
-                                <div class="text-3xl font-bold text-info">{{ stats.fromRegistry }}</div>
-                            </div>
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        <div class="bg-base-100 rounded-lg p-4">
+                            <div class="text-sm font-medium text-base-content/70">Total Apps</div>
+                            <div class="text-3xl font-bold text-primary">{{ stats.total }}</div>
+                        </div>
+                        <div class="bg-base-100 rounded-lg p-4">
+                            <div class="text-sm font-medium text-base-content/70">Enabled</div>
+                            <div class="text-3xl font-bold text-success">{{ stats.enabled }}</div>
+                        </div>
+                        <div class="bg-base-100 rounded-lg p-4">
+                            <div class="text-sm font-medium text-base-content/70">Disabled</div>
+                            <div class="text-3xl font-bold text-warning">{{ stats.disabled }}</div>
+                        </div>
+                        <div class="bg-base-100 rounded-lg p-4">
+                            <div class="text-sm font-medium text-base-content/70">Registry</div>
+                            <div class="text-3xl font-bold text-info">{{ stats.fromRegistry }}</div>
                         </div>
                     </div>
                 </div>
@@ -37,54 +35,48 @@
                 </div>
                 <div class="collapse-content">
                     <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-                        <!-- Search -->
                         <div class="form-control">
-                            <label class="label">
-                                <span class="label-text">Search</span>
+                            <label for="searchFilter" class="label">
+                                Search
                             </label>
-                            <input v-model="searchQuery" type="text" placeholder="Search by name or path..."
+                            <input id="searchFilter" v-model="searchQuery" type="text" placeholder="Name or Path"
                                 class="input input-bordered" />
                         </div>
 
-                        <!-- Location Filter -->
                         <div class="form-control">
                             <label class="label">
-                                <span class="label-text">Location</span>
+                                Location
                             </label>
                             <select v-model="selectedLocation" class="select select-bordered">
-                                <option :value="null">All Locations</option>
+                                <option value="">All Locations</option>
                                 <option v-for="loc in locationOptions" :key="loc.value" :value="loc.value">
                                     {{ loc.label }}
                                 </option>
                             </select>
                         </div>
 
-                        <!-- Status Filter -->
                         <div class="form-control">
                             <label class="label">
-                                <span class="label-text">Status</span>
+                                Status
                             </label>
-                            <select v-model.number="selectedStatus" class="select select-bordered">
-                                <option :value="null">All Statuses</option>
-                                <option :value="true">Enabled</option>
-                                <option :value="false">Disabled</option>
+                            <select v-model="selectedStatus" class="select select-bordered">
+                                <option value="">All Statuses</option>
+                                <option value="true">Enabled</option>
+                                <option value="false">Disabled</option>
                             </select>
                         </div>
 
-                        <!-- Actions -->
                         <div class="form-control">
                             <label class="label">
-                                <span class="label-text">Actions</span>
+                                Actions
                             </label>
                             <div class="flex gap-2">
-                                <Button class="btn btn-info btn-square" @clicked="refresh" :is-loading="loading">
-                                    <Icon name="refresh" class="w-4 h-4" />
+                                <Button :text="'Refresh'" @clicked="refresh" class="btn btn-info btn-square" :is-loading="loading">
+                                    <Icon name="refresh" />
                                 </Button>
-                                <Button class="btn btn-neutral btn-square" @clicked="clearFilters">
-                                    <Icon name="filterOff" class="w-4 h-4" />
-                                </Button>
-                                <Button class="btn btn-primary btn-square" @clicked="showAddModal = true">
-                                    <Icon name="plus" class="w-4 h-4" />
+                                <Button :text="'Clear Filters'" @clicked="clearFilters"
+                                    class="btn btn-neutral btn-square">
+                                    <Icon name="filterOff" />
                                 </Button>
                             </div>
                         </div>
@@ -94,23 +86,22 @@
         </div>
     </div>
 
-    <div v-if="loading" class="card bg-base-100 card-border border-base-300">
-        <div class="card-body flex items-center justify-center h-40">
+    <div v-if="loading" class="alert alert-info">
+        <div class="flex items-center justify-center">
             <span class="loading loading-spinner loading-lg"></span>
         </div>
     </div>
 
     <div v-else-if="error" class="alert alert-error">
         <Icon name="alarmWarning" />
-        <div>
-            <h3 class="font-bold">Failed to load startup apps</h3>
-            <div class="text-xs">{{ error }}</div>
-        </div>
+        <h3 class="font-bold">Failed to load startup apps</h3>
+        <div class="text-xs">{{ error }}</div>
     </div>
 
-    <div v-else-if="filteredApps.length === 0" class="text-center py-12">
-        <h3 class="text-lg font-bold text-base-content">No startup apps found</h3>
-        <p class="text-base-content/70">Try adjusting your filters</p>
+    <div v-else-if="filteredApps.length === 0" class="alert alert-warning">
+        <Icon name="search" />
+        <h3 class="font-bold">No startup apps found</h3>
+        <div class="text-xs">Try adjusting your filters</div>
     </div>
 
     <div v-else class="card bg-base-100 card-border border-base-300">
@@ -120,8 +111,7 @@
                     <tr>
                         <th>Name</th>
                         <th>Location</th>
-                        <th>Path</th>
-                        <th>Arguments</th>
+                        <th>Command</th>
                         <th>Status</th>
                         <th>Actions</th>
                     </tr>
@@ -136,16 +126,10 @@
                                 {{ formatLocation(app.location) }}
                             </div>
                         </td>
-                        <td class="max-w-xs">
-                            <span class="tooltip tooltip-right" :data-tip="app.path">
-                                {{ truncatePath(app.path) }}
-                            </span>
-                        </td>
-                        <td>
-                            <code v-if="app.arguments" class="text-xs bg-base-200 px-2 py-1 rounded">
-                                    {{ app.arguments }}
-                                </code>
-                            <span v-else class="text-base-content/50">—</span>
+                        <td style="word-break: break-word; max-width: 300px;">
+                            <code class="text-xs bg-base-200 px-2 py-1 rounded tooltip" :data-tip="fullCommand(app)">
+                                {{ fullCommand(app) }}
+                            </code>
                         </td>
                         <td>
                             <div :class="`badge ${app.enabled ? 'badge-success' : 'badge-warning'}`">
@@ -177,7 +161,7 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useStartupApps } from '../../composables/useStartupApps.js'
 import Button from '../Button.vue'
 import Icon from '../Icon.vue'
@@ -223,8 +207,8 @@ const getLocationColor = (location) => {
     return map[location] || 'neutral'
 }
 
-const truncatePath = (path) => {
-    return path.length > 50 ? `${path.substring(0, 50)}...` : path
+const fullCommand = (app) => {
+    return app.arguments ? `${app.path} ${app.arguments}` : app.path
 }
 
 const editApp = (app) => {
@@ -275,5 +259,11 @@ const refresh = async () => {
     await loadStartupApps()
 }
 
-loadStartupApps()
+// Load startup apps on mount
+onMounted(() => {
+    // Delay loading to allow UI to render first
+    setTimeout(async () => {
+        await loadStartupApps()
+    }, 100)
+})
 </script>

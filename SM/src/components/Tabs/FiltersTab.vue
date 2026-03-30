@@ -114,7 +114,7 @@
                                 Actions
                             </label>
                             <div class="flex gap-2">
-                                <Button :text="'Refresh'" @clicked="refresh" class="btn btn-info btn-square">
+                                <Button :text="'Refresh'" @clicked="refresh" class="btn btn-info btn-square" :is-loading="loading">
                                     <Icon name="refresh" />
                                 </Button>
                                 <Button :text="'Clear Filters'" @clicked="clearFilters"
@@ -135,10 +135,16 @@
         <div class="text-xs">Please try refreshing the page :(</div>
     </div>
 
-    <div v-else-if="loading" class="card bg-base-100 card-border border-base-300">
-        <div class="card-body flex items-center justify-center">
+    <div v-else-if="loading" class="alert alert-info">
+        <div class="flex items-center justify-center">
             <span class="loading loading-spinner loading-lg"></span>
         </div>
+    </div>
+
+    <div v-else-if="filteredServices.length === 0" class="alert alert-error">
+        <Icon name="alarmWarning" />
+        <h3 class="font-bold">No services found</h3>
+        <div class="text-xs">Try adjusting your search or filter criteria :(</div>
     </div>
 
     <div v-else class="card bg-base-100 card-border border-base-300">
@@ -188,11 +194,6 @@
                 </tbody>
             </table>
         </div>
-
-        <div v-if="filteredServices.length === 0" class="text-center py-12">
-            <h3 class="mt-2 text-lg font-bold text-base-content">No services found</h3>
-            <p class="mt-1 text-base-content/70">Try adjusting your search or filter criteria.</p>
-        </div>
     </div>
 
     <ConfirmDisableModal :showModal="showModal" :selectedService="selectedService" @close="showModal = false"
@@ -219,7 +220,10 @@ const { showModal, selectedService, showDetailsModal, selectedServiceForDetails,
 
 const confirmDisable = () => confirmDisableModal(disable)
 
-onMounted(async () => {
-    await loadServicesData()
+onMounted(() => {
+    // Delay loading to allow UI to render first
+    setTimeout(async () => {
+        await loadServicesData()
+    }, 100)
 })
 </script>

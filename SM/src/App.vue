@@ -16,12 +16,12 @@
 </template>
 
 <script setup>
-import { markRaw, ref } from 'vue'
+import { markRaw, ref, defineAsyncComponent } from 'vue'
 
-import FiltersTab from './components/Tabs/FiltersTab.vue'
-import HistoryTab from './components/Tabs/HistoryTab.vue'
-import PresetsTab from './components/Tabs/PresetsTab.vue'
-import StartupTab from './components/Tabs/StartupTab.vue'
+const FiltersTab = defineAsyncComponent(() => import('./components/Tabs/FiltersTab.vue'))
+const HistoryTab = defineAsyncComponent(() => import('./components/Tabs/HistoryTab.vue'))
+const PresetsTab = defineAsyncComponent(() => import('./components/Tabs/PresetsTab.vue'))
+const StartupTab = defineAsyncComponent(() => import('./components/Tabs/StartupTab.vue'))
 
 const tabs = ref([
     {
@@ -31,16 +31,16 @@ const tabs = ref([
         icon: 'equalizer',
     },
     {
-        id: 'startup',
-        name: 'Startup Apps',
-        component: markRaw(StartupTab),
-        icon: 'rocket',
-    },
-    {
         id: 'presets',
         name: 'Presets',
         component: markRaw(PresetsTab),
         icon: 'flashlight',
+    },
+    {
+        id: 'startup',
+        name: 'Startup Apps',
+        component: markRaw(StartupTab),
+        icon: 'rocket',
     },
     {
         id: 'history',

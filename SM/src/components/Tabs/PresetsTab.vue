@@ -64,7 +64,10 @@ const {
     applyPreset,
 } = usePresets(allServices)
 
-onMounted(async () => {
-    await loadServicesData()
+onMounted(() => {
+    // Delay loading to allow UI to render first
+    setTimeout(async () => {
+        await loadServicesData()
+    }, 100)
 })
 </script>

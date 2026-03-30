@@ -461,6 +461,21 @@ pub fn run() {
         db: Mutex::new(db),
     };
 
+    // Preload services cache to avoid delay on first load
+    eprintln!("DEBUG: Preloading services cache");
+    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    rt.block_on(async {
+        match refresh_services_cache(&app_state).await {
+            Ok(services) => {
+                let mut cache = app_state.services_cache.lock().unwrap();
+                cache.data = services;
+                cache.last_updated = SystemTime::now();
+                eprintln!("DEBUG: Preloaded {} services", cache.data.len());
+            }
+            Err(e) => eprintln!("DEBUG: Failed to preload services: {}", e),
+        }
+    });
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(app_state)

@@ -14,6 +14,46 @@ const MAX_REGISTRY_NAME_SIZE: usize = 256;
 /// Maximum byte size for a registry value data buffer.
 const MAX_REGISTRY_VALUE_SIZE: usize = 2048;
 
+/// Parse a command line into executable path and arguments, handling quotes properly.
+fn parse_command_line(command: &str) -> (String, Option<String>) {
+    let command = command.trim().replace('\t', " ");
+    if command.is_empty() {
+        return (String::new(), None);
+    }
+
+    let chars: Vec<char> = command.chars().collect();
+    let mut i = 0;
+    let mut path = String::new();
+    let mut in_quotes = false;
+
+    // Parse the executable path (first token, handling quotes)
+    while i < chars.len() {
+        let c = chars[i];
+        if c == '"' {
+            in_quotes = !in_quotes;
+        } else if c.is_whitespace() && !in_quotes {
+            break;
+        } else {
+            path.push(c);
+        }
+        i += 1;
+    }
+
+    // Skip whitespace after path
+    while i < chars.len() && chars[i].is_whitespace() {
+        i += 1;
+    }
+
+    // Remaining is arguments
+    let arguments = if i < chars.len() {
+        Some(chars[i..].iter().collect::<String>().trim().to_string())
+    } else {
+        None
+    };
+
+    (path, arguments)
+}
+
 /// List all startup entries from HKCU, HKLM, and the user startup folder.
 pub fn list_startup_apps() -> Result<Vec<StartupApp>, String> {
     let mut apps = Vec::new();
@@ -88,13 +128,9 @@ fn read_registry_startup(hive: HKEY, location: StartupLocation) -> Result<Vec<St
                 .unwrap_or(word_count);
             let command = String::from_utf16_lossy(&words[..end]).to_string();
 
-            // Parse command into path and arguments
-            let (path, arguments) = if command.contains(' ') {
-                let parts: Vec<&str> = command.splitn(2, ' ').collect();
-                (parts[0].to_string(), Some(parts[1].to_string()))
-            } else {
-                (command, None)
-            };
+            // Store full command as path, no parsing
+            let path = command;
+            let arguments = None;
 
             apps.push(StartupApp {
                 name,

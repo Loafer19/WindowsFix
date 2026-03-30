@@ -11,13 +11,13 @@ export function useStartupApps() {
     const error = ref(null)
 
     const searchQuery = ref('')
-    const selectedLocation = ref(null)
-    const selectedStatus = ref(null)
+    const selectedLocation = ref('')
+    const selectedStatus = ref('')
 
     const locationOptions = [
-        { value: 'HkeyLocalMachine', label: 'HKLM Registry (System)' },
-        { value: 'HkeyCurrentUser', label: 'HKCU Registry (User)' },
-        { value: 'StartupFolder', label: 'Startup Folder' },
+        { value: 'hkeyLocalMachine', label: 'HKLM Registry (System)' },
+        { value: 'hkeyCurrentUser', label: 'HKCU Registry (User)' },
+        { value: 'startupFolder', label: 'Startup Folder' },
     ]
 
     const statusOptions = [
@@ -37,8 +37,8 @@ export function useStartupApps() {
             const matchesLocation = !selectedLocation.value ||
                 app.location === selectedLocation.value
 
-            const matchesStatus = selectedStatus.value === null ||
-                app.enabled === selectedStatus.value
+            const matchesStatus = !selectedStatus.value ||
+                app.enabled === (selectedStatus.value === 'true')
 
             return matchesSearch && matchesLocation && matchesStatus
         })
@@ -109,8 +109,8 @@ export function useStartupApps() {
 
     const clearFilters = () => {
         searchQuery.value = ''
-        selectedLocation.value = null
-        selectedStatus.value = null
+        selectedLocation.value = ''
+        selectedStatus.value = ''
     }
 
     return {
