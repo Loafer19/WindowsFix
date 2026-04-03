@@ -3,6 +3,7 @@ import {
     getStartupApps,
     addStartupApp,
     removeStartupApp,
+    toggleStartupApp,
 } from '../services/api.js'
 
 export function useStartupApps() {
@@ -107,6 +108,19 @@ export function useStartupApps() {
         }
     }
 
+    const toggleApp = async (app) => {
+        try {
+            loading.value = true
+            await toggleStartupApp(app)
+            await loadStartupApps()
+        } catch (err) {
+            error.value = err.message
+            throw err
+        } finally {
+            loading.value = false
+        }
+    }
+
     const clearFilters = () => {
         searchQuery.value = ''
         selectedLocation.value = ''
@@ -128,6 +142,7 @@ export function useStartupApps() {
         loadStartupApps,
         addApp,
         removeApp,
+        toggleApp,
         clearFilters,
     }
 }

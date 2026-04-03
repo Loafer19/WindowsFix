@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use windows::core::PCWSTR;
 use windows::Win32::System::Services::*;
 
+use crate::core::defaults::get_default_services;
 use crate::core::models::{AppError, ServiceInfo, WindowsService};
 use super::windows_api::{to_wide_string, ScHandle};
 
@@ -29,13 +30,14 @@ fn startup_type_str(start_type: SERVICE_START_TYPE) -> &'static str {
     }
 }
 
-pub fn get_default_service_info(service_name: &str, defaults: &HashMap<String, ServiceInfo>) -> ServiceInfo {
+pub fn get_default_service_info(service_name: &str, _defaults: &HashMap<String, ServiceInfo>) -> ServiceInfo {
+    let defaults = get_default_services();
     if let Some(info) = defaults.get(service_name) {
         return info.clone();
     }
 
     let service_lower = service_name.to_lowercase();
-    for (key, info) in defaults {
+    for (key, info) in &defaults {
         if service_lower.contains(&key.to_lowercase()) || key.to_lowercase().contains(&service_lower) {
             return info.clone();
         }

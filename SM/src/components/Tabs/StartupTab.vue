@@ -7,22 +7,58 @@
                     Analytics
                 </div>
                 <div class="collapse-content">
-                    <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-                        <div class="bg-base-100 rounded-lg p-4">
-                            <div class="text-sm font-medium text-base-content/70">Total Apps</div>
-                            <div class="text-3xl font-bold text-primary">{{ stats.total }}</div>
+                    <div class="mb-4">
+                        <h4 class="text-lg font-semibold text-base-content mb-4">
+                            By Location
+                        </h4>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                            <div v-for="(count, type) in appsByLocation" :key="type" class="bg-base-100 rounded-lg p-4">
+                                <div class="flex items-center gap-2 capitalize font-medium">
+                                    {{ formatLocation(type) }}
+                                </div>
+                                <div class="text-xl" :class="`text-${getLocationColor(type)}`">{{ count.length }}</div>
+                                <div class="text-base-content/70">
+                                    {{ stats.total > 0 ? ((count.length / stats.total) * 100).toFixed(1) : 0 }}% of
+                                    total
+                                </div>
+                                <progress class="progress h-2 mt-2" :class="`progress-${getLocationColor(type)}`"
+                                    :value="stats.total > 0 ? ((count.length / stats.total) * 100) : 0"
+                                    max="100"></progress>
+                            </div>
                         </div>
-                        <div class="bg-base-100 rounded-lg p-4">
-                            <div class="text-sm font-medium text-base-content/70">Enabled</div>
-                            <div class="text-3xl font-bold text-success">{{ stats.enabled }}</div>
-                        </div>
-                        <div class="bg-base-100 rounded-lg p-4">
-                            <div class="text-sm font-medium text-base-content/70">Disabled</div>
-                            <div class="text-3xl font-bold text-warning">{{ stats.disabled }}</div>
-                        </div>
-                        <div class="bg-base-100 rounded-lg p-4">
-                            <div class="text-sm font-medium text-base-content/70">Registry</div>
-                            <div class="text-3xl font-bold text-info">{{ stats.fromRegistry }}</div>
+                    </div>
+
+                    <div>
+                        <h4 class="text-lg font-semibold text-base-content mb-4">
+                            By Status
+                        </h4>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                            <div class="bg-base-100 rounded-lg p-4">
+                                <div class="flex items-center gap-2 capitalize font-medium">
+                                    Enabled
+                                </div>
+                                <div class="text-2xl text-success">{{ stats.enabled }}</div>
+                                <div class="text-base-content/70">
+                                    {{ stats.total > 0 ? ((stats.enabled / stats.total) * 100).toFixed(1) : 0 }}% of
+                                    total
+                                </div>
+                                <progress class="progress h-2 mt-2 progress-success"
+                                    :value="stats.total > 0 ? ((stats.enabled / stats.total) * 100) : 0"
+                                    max="100"></progress>
+                            </div>
+                            <div class="bg-base-100 rounded-lg p-4">
+                                <div class="flex items-center gap-2 capitalize font-medium">
+                                    Disabled
+                                </div>
+                                <div class="text-2xl text-warning">{{ stats.disabled }}</div>
+                                <div class="text-base-content/70">
+                                    {{ stats.total > 0 ? ((stats.disabled / stats.total) * 100).toFixed(1) : 0 }}% of
+                                    total
+                                </div>
+                                <progress class="progress h-2 mt-2 progress-warning"
+                                    :value="stats.total > 0 ? ((stats.disabled / stats.total) * 100) : 0"
+                                    max="100"></progress>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -34,6 +70,22 @@
                     Filters
                 </div>
                 <div class="collapse-content">
+                    <div class="mb-4">
+                        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                            <div class="bg-base-100 rounded-lg p-4">
+                                <div class="capitalize font-medium">Showing</div>
+                                <div class="text-2xl text-primary">{{ filteredApps.length }}</div>
+                                <div class="text-base-content/70">
+                                    {{ stats.total > 0 ? ((filteredApps.length / stats.total) * 100).toFixed(1)
+                                        : 0 }}% of total
+                                </div>
+                                <progress class="progress progress-primary mt-2"
+                                    :value="stats.total > 0 ? ((filteredApps.length / stats.total) * 100) : 0"
+                                    max="100"></progress>
+                            </div>
+                        </div>
+                    </div>
+
                     <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
                         <div class="form-control">
                             <label for="searchFilter" class="label">
@@ -100,7 +152,7 @@
     </div>
 
     <div v-else-if="filteredApps.length === 0" class="alert alert-warning">
-        <Icon name="search" />
+        <Icon name="alarmWarning" />
         <h3 class="font-bold">No startup apps found</h3>
         <div class="text-xs">Try adjusting your filters</div>
     </div>
@@ -123,28 +175,34 @@
                             {{ app.name }}
                         </td>
                         <td>
-                            <div class="badge" :class="`badge-${getLocationColor(app.location)}`">
+                            <div class="badge text-nowrap" :class="`badge-${getLocationColor(app.location)}`">
                                 {{ formatLocation(app.location) }}
                             </div>
                         </td>
-                        <td style="word-break: break-word; max-width: 300px;">
-                            <code class="text-xs bg-base-200 px-2 py-1 rounded tooltip" :data-tip="fullCommand(app)">
-                                {{ fullCommand(app) }}
+                        <td>
+                            <code class="text-xs bg-base-200 p-1 rounded break-all">
+                                {{ app.path }}
                             </code>
                         </td>
                         <td>
-                            <div :class="`badge ${app.enabled ? 'badge-success' : 'badge-warning'}`">
+                            <div :class="`badge ${app.enabled ? 'badge-warning' : 'badge-success'}`">
                                 {{ app.enabled ? 'Enabled' : 'Disabled' }}
                             </div>
                         </td>
                         <td>
                             <div class="flex gap-2">
+                                <Button class="btn btn-sm btn-square tooltip"
+                                    :class="app.enabled ? 'btn-success' : 'btn-warning'" @clicked="handleToggle(app)"
+                                    :is-loading="togglingApp === `${app.name}-${app.location}`"
+                                    :data-tip="app.enabled ? 'Disable' : 'Enable'">
+                                    <Icon :name="app.enabled ? 'shutDown' : 'checkBoxCircle'" />
+                                </Button>
                                 <Button class="btn btn-info btn-sm btn-square" @clicked="editApp(app)">
                                     <Icon name="edit" />
                                 </Button>
-                                <Button class="btn btn-success btn-sm btn-square" @clicked="confirmRemove(app)"
+                                <Button class="btn btn-warning btn-sm btn-square" @clicked="confirmRemove(app)"
                                     :is-loading="removingApp === `${app.name}-${app.location}`">
-                                    <Icon name="shutDown" />
+                                    <Icon name="deleteBin" />
                                 </Button>
                             </div>
                         </td>
@@ -168,6 +226,7 @@ import Button from '../Button.vue'
 import Icon from '../Icon.vue'
 import StartupAppModal from '../Modals/StartupAppModal.vue'
 import ConfirmModal from '../Modals/ConfirmModal.vue'
+import { getLocationColor, formatLocation } from '../../services/helpers.js'
 
 const {
     filteredApps,
@@ -177,10 +236,12 @@ const {
     selectedLocation,
     selectedStatus,
     stats,
+    appsByLocation,
     locationOptions,
     loadStartupApps,
     addApp,
     removeApp,
+    toggleApp,
     clearFilters,
 } = useStartupApps()
 
@@ -188,28 +249,18 @@ const showAddModal = ref(false)
 const showConfirmRemove = ref(false)
 const removeAppConfirm = ref(null)
 const removingApp = ref(null)
+const togglingApp = ref(null)
 const editingApp = ref(null)
 
-const formatLocation = (location) => {
-    const map = {
-        'HkeyLocalMachine': 'HKLM Registry',
-        'HkeyCurrentUser': 'HKCU Registry',
-        'StartupFolder': 'Startup Folder',
+const handleToggle = async (app) => {
+    try {
+        togglingApp.value = `${app.name}-${app.location}`
+        await toggleApp(app)
+    } catch (err) {
+        console.error('Failed to toggle app:', err)
+    } finally {
+        togglingApp.value = null
     }
-    return map[location] || location
-}
-
-const getLocationColor = (location) => {
-    const map = {
-        'HkeyLocalMachine': 'primary',
-        'HkeyCurrentUser': 'info',
-        'StartupFolder': 'warning',
-    }
-    return map[location] || 'neutral'
-}
-
-const fullCommand = (app) => {
-    return app.arguments ? `${app.path} ${app.arguments}` : app.path
 }
 
 const editApp = (app) => {

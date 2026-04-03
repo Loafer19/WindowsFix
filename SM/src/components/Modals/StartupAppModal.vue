@@ -30,19 +30,6 @@
                     />
                 </div>
 
-                <!-- Arguments -->
-                <div class="form-control">
-                    <label class="label">
-                        <span class="label-text">Arguments (Optional)</span>
-                    </label>
-                    <input
-                        v-model="formData.arguments"
-                        type="text"
-                        placeholder="-silent -minimize"
-                        class="input input-bordered"
-                    />
-                </div>
-
                 <!-- Location -->
                 <div class="form-control">
                     <label class="label">
@@ -100,7 +87,6 @@ const emit = defineEmits(['close', 'confirm'])
 const formData = ref({
     name: '',
     path: '',
-    arguments: '',
     location: '',
     enabled: true,
     description: null,
@@ -114,7 +100,6 @@ watch(() => props.app, (newApp) => {
         formData.value = {
             name: newApp.name || '',
             path: newApp.path || '',
-            arguments: newApp.arguments || '',
             location: newApp.location || '',
             enabled: newApp.enabled !== undefined ? newApp.enabled : true,
             description: newApp.description || null,
@@ -124,7 +109,6 @@ watch(() => props.app, (newApp) => {
         formData.value = {
             name: '',
             path: '',
-            arguments: '',
             location: '',
             enabled: true,
             description: null,
@@ -147,7 +131,6 @@ const submit = async () => {
         formData.value = {
             name: '',
             path: '',
-            arguments: '',
             location: '',
             enabled: true,
             description: null,

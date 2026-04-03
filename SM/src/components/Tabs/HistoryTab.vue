@@ -1,41 +1,28 @@
 <template>
     <div class="card bg-base-100 card-border border-base-300 mb-6">
         <div class="card-body">
-            <div class="collapse collapse-arrow bg-base-200 mb-4">
-                <input type="checkbox" />
-                <div class="collapse-title text-lg font-semibold text-base-content">
-                    Analytics
-                </div>
-                <div class="collapse-content">
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <div class="bg-base-100 rounded-lg p-4">
-                            <div class="text-sm font-medium text-base-content/70">Total Changes</div>
-                            <div class="text-3xl font-bold text-primary">{{ stats.total }}</div>
-                            <progress class="progress progress-primary h-2 mt-2" :value="stats.total"
-                                max="100"></progress>
-                        </div>
-                        <div class="bg-base-200 rounded-lg p-4">
-                            <div class="text-sm font-medium text-base-content/70">Service Changes</div>
-                            <div class="text-3xl font-bold text-info">{{ stats.services }}</div>
-                            <div class="text-xs text-base-content/50 mt-1">{{ ((stats.services / (stats.total || 1)) *
-                                100).toFixed(1) }}%</div>
-                        </div>
-                        <div class="bg-base-200 rounded-lg p-4">
-                            <div class="text-sm font-medium text-base-content/70">Startup App Changes</div>
-                            <div class="text-3xl font-bold text-success">{{ stats.startupApps }}</div>
-                            <div class="text-xs text-base-content/50 mt-1">{{ ((stats.startupApps / (stats.total || 1))
-                                * 100).toFixed(1) }}%</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
             <div class="collapse collapse-arrow bg-base-200">
                 <input type="checkbox" checked />
                 <div class="collapse-title text-lg font-semibold text-base-content">
                     Filters
                 </div>
                 <div class="collapse-content">
+                    <div class="mb-4">
+                        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                            <div class="bg-base-100 rounded-lg p-4">
+                                <div class="capitalize font-medium">Showing</div>
+                                <div class="text-2xl text-primary">{{ history.length }}</div>
+                                <div class="text-base-content/70">
+                                    {{ allHistory.length > 0 ? ((history.length / allHistory.length) * 100).toFixed(1)
+                                        : 0 }}% of total
+                                </div>
+                                <progress class="progress progress-primary mt-2"
+                                    :value="allHistory.length > 0 ? ((history.length / allHistory.length) * 100) : 0"
+                                    max="100"></progress>
+                            </div>
+                        </div>
+                    </div>
+
                     <div class="flex gap-2">
                         <button :class="`btn btn-sm ${filterType === null ? 'btn-primary' : 'btn-ghost'}`"
                             @click="setFilterType(null)">
@@ -45,7 +32,7 @@
                             @click="setFilterType('service')">
                             Services
                         </button>
-                        <button :class="`btn btn-sm ${filterType === 'startup_app' ? 'btn-success' : 'btn-ghost'}`"
+                        <button :class="`btn btn-sm ${filterType === 'startup_app' ? 'btn-info' : 'btn-ghost'}`"
                             @click="setFilterType('startup_app')">
                             Startup Apps
                         </button>
@@ -55,7 +42,7 @@
 
             <div class="flex justify-end mt-4">
                 <Button v-if="allHistory.length > 0" class="btn btn-error btn-sm" @clicked="confirmClear">
-                    <Icon name="trash" class="w-4 h-4" />
+                    <Icon name="deleteBin" class="w-5 h-5" />
                     Clear History
                 </Button>
             </div>
@@ -88,31 +75,25 @@
                 </thead>
                 <tbody>
                     <tr v-for="entry in history" :key="entry.timestamp">
-                        <!-- Name -->
                         <td class="font-medium">
                             {{ entry.serviceName || entry.appName || entry.name || 'Unknown' }}
                         </td>
 
-                        <!-- Type Badge -->
                         <td>
-                            <div
-                                :class="`badge ${entry.type === 'Service' ? 'badge-info' : entry.type === 'StartupApp' ? 'badge-success' : 'badge-neutral'}`">
-                                {{ entry.type === 'Service' ? 'Service' : entry.type === 'StartupApp' ? 'Startup App' :
-                                    entry.type || 'Unknown' }}
+                            <div class="badge badge-neutral text-nowrap">
+                                {{ entry.type === 'service' ? 'Service' :
+                                    entry.type === 'startupApp' ? 'Startup App' : entry.type || 'Unknown' }}
                             </div>
                         </td>
 
-                        <!-- Action Badge -->
                         <td>
                             <div :class="`badge badge-${getActionColor(entry.action)}`">
                                 {{ entry.action || 'Unknown' }}
                             </div>
                         </td>
 
-                        <!-- Details -->
                         <td class="text-sm">
-                            <div v-if="entry.type === 'Service'">
-                                <!-- Service Details -->
+                            <div v-if="entry.type === 'service'">
                                 <div v-if="entry.newValue && entry.action !== 'set_startup_type'"
                                     class="flex items-center gap-1">
                                     <span v-if="entry.oldValue"
@@ -138,17 +119,18 @@
                                 </div>
                             </div>
 
-                            <div v-else-if="entry.type === 'StartupApp'" class="space-y-1">
-                                <!-- Startup App Details -->
+                            <div v-else-if="entry.type === 'startupApp'" class="space-y-1">
                                 <div class="flex items-center gap-2">
                                     <span class="badge badge-xs">{{ entry.location }}</span>
+                                </div>
+                                <div v-if="entry.command" class="text-base-content/70 text-xs mt-1">
+                                    <code class="bg-base-200 p-1 rounded break-all">{{ entry.command }}</code>
                                 </div>
                             </div>
                         </td>
 
-                        <!-- Timestamp -->
-                        <td class="text-sm text-base-content/50"
-                            :title="new Date(entry.timestamp * 1000).toLocaleString()">
+                        <td class="text-sm text-base-content/50 tooltip"
+                            :data-tip="new Date(entry.timestamp * 1000).toLocaleString()">
                             {{ formatTime(entry.timestamp * 1000) }}
                         </td>
                     </tr>
@@ -168,59 +150,25 @@ import { useHistory } from '../../composables/useHistory.js'
 import Button from '../Button.vue'
 import Icon from '../Icon.vue'
 import ConfirmModal from '../Modals/ConfirmModal.vue'
-import { getStatusColor, getStartupTypeColor } from '../../services/helpers.js'
+import { getStatusColor, getStartupTypeColor, formatTime, getActionColor } from '../../services/helpers.js'
 
 const {
     history,
     allHistory,
     loading,
-    stats,
     filterType,
     setFilterType,
     loadHistory,
     clearHistory,
 } = useHistory()
 
-// Load history on mount
 onMounted(() => {
-    // Delay loading to allow UI to render first
     setTimeout(async () => {
         await loadHistory()
     }, 100)
 })
 
 const showConfirmClear = ref(false)
-
-const getActionColor = (action) => {
-    const map = {
-        'Started': 'success',
-        'Stopped': 'warning',
-        'Restarted': 'info',
-        'Disabled': 'error',
-        'Added': 'success',
-        'Removed': 'error',
-    }
-    return map[action] || 'neutral'
-}
-
-const truncatePath = (path, maxLen = 50) => {
-    return path.length > maxLen ? `${path.substring(0, maxLen)}...` : path
-}
-
-const formatTime = (timestamp) => {
-    const date = new Date(timestamp)
-    const now = new Date()
-    const diff = now - date
-
-    // Less than a minute
-    if (diff < 60000) return 'just now'
-    // Less than an hour
-    if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`
-    // Less than a day
-    if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`
-    // Otherwise show date
-    return date.toLocaleDateString()
-}
 
 const confirmClear = () => {
     showConfirmClear.value = true

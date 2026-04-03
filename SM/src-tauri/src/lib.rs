@@ -2,6 +2,7 @@ mod config;
 mod core;
 mod platform;
 
+use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::SystemTime;
 
@@ -90,8 +91,6 @@ async fn reload_service_info(
 
     let mut services_info = state.services_info.lock().unwrap();
     services_info.insert(service_name.clone(), info.clone());
-    let db = state.db.lock().unwrap();
-    let _ = core::database::save_service_info(&db, &service_name, &info);
 
     Ok(info)
 }
@@ -257,7 +256,7 @@ async fn remove_startup_app(
     {
         Ok(result) => match result {
             Ok(()) => {
-                let entry = HistoryEntry::startup_app(&name, "remove", location.as_str());
+                let entry = HistoryEntry::startup_app(&name, "remove", location.as_str(), Some(app_clone.path.as_str()));
                 state.history.lock().unwrap().push(entry.clone());
                 let _ = core::database::append_history(&state.db.lock().unwrap(), &entry);
                 Ok(())
@@ -281,7 +280,35 @@ async fn add_startup_app(
     {
         Ok(result) => match result {
             Ok(()) => {
-                let entry = HistoryEntry::startup_app(&app.name, "add", app.location.as_str());
+                let entry = HistoryEntry::startup_app(&app.name, "add", app.location.as_str(), None);
+                state.history.lock().unwrap().push(entry.clone());
+                let _ = core::database::append_history(&state.db.lock().unwrap(), &entry);
+                Ok(())
+            }
+            Err(e) => Err(e),
+        },
+        Err(e) => Err(AppError::TaskPanic { message: format!("{:?}", e) }),
+    }
+}
+
+#[tauri::command]
+async fn toggle_startup_app(
+    app: StartupApp,
+    state: State<'_, AppState>,
+) -> Result<(), AppError> {
+    let name = app.name.clone();
+    let location = app.location.clone();
+    let path = app.path.clone();
+    let new_state = if app.enabled { "disable" } else { "enable" };
+    let app_clone = app.clone();
+    match tokio::task::spawn_blocking(move || {
+        platform::startup_apps::toggle_startup_app(&app_clone)
+    })
+    .await
+    {
+        Ok(result) => match result {
+            Ok(()) => {
+                let entry = HistoryEntry::startup_app(&name, new_state, location.as_str(), Some(path.as_str()));
                 state.history.lock().unwrap().push(entry.clone());
                 let _ = core::database::append_history(&state.db.lock().unwrap(), &entry);
                 Ok(())
@@ -364,13 +391,11 @@ fn record_service_history(
     let _ = core::database::append_history(&state.db.lock().unwrap(), &entry);
 }
 
-async fn refresh_services_cache(state: &AppState) -> Result<Vec<WindowsService>, AppError> {
+async fn refresh_services_cache(_state: &AppState) -> Result<Vec<WindowsService>, AppError> {
     eprintln!("DEBUG: Starting refresh_services_cache");
     match get_windows_services().await {
         Ok(services) => {
             eprintln!("DEBUG: Got {} services from Windows API", services.len());
-            let mut info_map = state.services_info.lock().unwrap();
-            eprintln!("DEBUG: Starting to process services");
             let services_len = services.len();
             let processed_services: Vec<WindowsService> = services
                 .into_iter()
@@ -380,18 +405,7 @@ async fn refresh_services_cache(state: &AppState) -> Result<Vec<WindowsService>,
                         eprintln!("DEBUG: Processing service info {} of {}", i + 1, services_len);
                     }
                     let name = service.name.split('_').next().unwrap_or(&service.name).to_string();
-
-                    let info = if let Some(existing_info) = info_map.get(&name) {
-                        if existing_info.explained.is_some() || existing_info.recommendation.is_some() {
-                            existing_info.clone()
-                        } else {
-                            get_default_service_info(&name, &info_map)
-                        }
-                    } else {
-                        let default_info = get_default_service_info(&name, &info_map);
-                        info_map.insert(name.clone(), default_info.clone());
-                        default_info
-                    };
+                    let info = get_default_service_info(&name, &HashMap::new());
 
                     WindowsService {
                         name: name.clone(),
@@ -402,11 +416,6 @@ async fn refresh_services_cache(state: &AppState) -> Result<Vec<WindowsService>,
                     }
                 })
                 .collect();
-
-            eprintln!("DEBUG: Finished processing services, saving to DB");
-            let db = state.db.lock().unwrap();
-            let _ = core::database::save_all_service_info(&db, &info_map);
-            eprintln!("DEBUG: Saved service info to DB");
 
             Ok(processed_services)
         }
@@ -436,9 +445,9 @@ pub fn run() {
     };
     eprintln!("DEBUG: Database opened");
 
-    eprintln!("DEBUG: Loading service info from DB");
-    let services_info = core::database::load_service_info(&db, config.service_info_ttl.as_secs());
-    eprintln!("DEBUG: Loaded {} service info entries", services_info.len());
+    // Don't load service info from DB - fetch fresh from Windows API instead
+    let services_info = std::collections::HashMap::new();
+    eprintln!("DEBUG: Skipped loading service info from DB (will fetch fresh)");
 
     eprintln!("DEBUG: Loading history from DB");
     let history = core::database::load_history(&db, MAX_HISTORY_ENTRIES);
@@ -486,6 +495,7 @@ pub fn run() {
             get_startup_apps,
             remove_startup_app,
             add_startup_app,
+            toggle_startup_app,
             get_history,
             get_history_by_type,
             clear_history,

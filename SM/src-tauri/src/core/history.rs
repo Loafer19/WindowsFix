@@ -33,6 +33,7 @@ pub struct StartupAppHistoryEntry {
     pub app_name: String,
     pub action: String,
     pub location: String,
+    pub command: Option<String>,
     pub timestamp: u64,
 }
 
@@ -44,7 +45,12 @@ impl HistoryEntry {
         }
     }
 
-    pub fn service(name: &str, action: &str, old_value: Option<&str>, new_value: Option<&str>) -> Self {
+    pub fn service(
+        name: &str,
+        action: &str,
+        old_value: Option<&str>,
+        new_value: Option<&str>,
+    ) -> Self {
         HistoryEntry::Service(ServiceHistoryEntry {
             service_name: name.to_string(),
             action: action.to_string(),
@@ -54,11 +60,12 @@ impl HistoryEntry {
         })
     }
 
-    pub fn startup_app(name: &str, action: &str, location: &str) -> Self {
+    pub fn startup_app(name: &str, action: &str, location: &str, command: Option<&str>) -> Self {
         HistoryEntry::StartupApp(StartupAppHistoryEntry {
             app_name: name.to_string(),
             action: action.to_string(),
             location: location.to_string(),
+            command: command.map(|s| s.to_string()),
             timestamp: current_timestamp(),
         })
     }

@@ -3,8 +3,14 @@ import { disableService } from '../services/api.js'
 
 export function usePresets(allServices) {
     const showPresetModal = ref(false)
+    const showResultModal = ref(false)
     const selectedPreset = ref(null)
     const applyingPreset = ref(false)
+    const presetResults = ref([])
+    const progress = ref(0)
+    const totalInPreset = ref(0)
+    const totalServices = ref(0)
+    const currentServiceName = ref('')
 
     const openPresetModal = (preset) => {
         selectedPreset.value = preset
@@ -13,35 +19,67 @@ export function usePresets(allServices) {
 
     const applyPreset = async (preset) => {
         applyingPreset.value = true
-        const results = []
+        showPresetModal.value = false
+        showResultModal.value = true
+        presetResults.value = []
+        progress.value = 0
+        currentServiceName.value = ''
+        totalInPreset.value = preset.services.length
 
-        for (const presetSvc of preset.services) {
+        const servicesToProcess = preset.services.filter(presetSvc => {
             const service = allServices.value.find(
                 (s) =>
                     s.name === presetSvc.name ||
                     s.name.toLowerCase() === presetSvc.name.toLowerCase(),
             )
-            if (!service || service.startupType === 'Disabled') continue
+            return service && service.startupType !== 'Disabled'
+        })
+
+        totalServices.value = servicesToProcess.length
+
+        for (let i = 0; i < servicesToProcess.length; i++) {
+            const presetSvc = servicesToProcess[i]
+            const service = allServices.value.find(
+                (s) =>
+                    s.name === presetSvc.name ||
+                    s.name.toLowerCase() === presetSvc.name.toLowerCase(),
+            )
+
+            currentServiceName.value = service.name
+            progress.value = i
 
             try {
                 const data = await disableService(service.name)
                 Object.assign(service, data)
-                results.push({ name: service.name, success: true })
+                presetResults.value.push({ name: service.name, success: true })
             } catch (err) {
                 console.error(`Failed to disable ${service.name}:`, err)
-                results.push({ name: service.name, success: false })
+                presetResults.value.push({ name: service.name, success: false })
             }
         }
 
+        progress.value = totalServices.value
         applyingPreset.value = false
-        showPresetModal.value = false
+        currentServiceName.value = ''
+    }
+
+    const closeResultModal = () => {
+        showResultModal.value = false
+        presetResults.value = []
     }
 
     return {
         showPresetModal,
+        showResultModal,
         selectedPreset,
         applyingPreset,
+        presetResults,
+        progress,
+        totalInPreset,
+        totalServices,
+        currentServiceName,
         openPresetModal,
         applyPreset,
+        closeResultModal,
     }
 }

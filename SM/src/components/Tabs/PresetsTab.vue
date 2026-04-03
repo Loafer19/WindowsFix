@@ -42,8 +42,22 @@
         </div>
     </div>
 
-    <PresetConfirmModal :showModal="showPresetModal" :preset="selectedPreset" :applying="applyingPreset"
-        @close="showPresetModal = false" @confirm="applyPreset" />
+    <PresetConfirmModal 
+        :showModal="showPresetModal" 
+        :preset="selectedPreset" 
+        :applying="applyingPreset"
+        @close="showPresetModal = false" 
+        @confirm="applyPreset" />
+
+    <PresetResultModal 
+        :show="showResultModal" 
+        :results="presetResults" 
+        :applying="applyingPreset"
+        :progress="progress"
+        :total="totalServices"
+        :totalInPreset="totalInPreset"
+        :currentService="currentServiceName"
+        @close="closeResultModal" />
 </template>
 
 <script setup>
@@ -51,6 +65,7 @@ import { onMounted } from 'vue'
 import { presets } from '../../services/presets.js'
 import Button from '../Button.vue'
 import PresetConfirmModal from '../Modals/PresetConfirmModal.vue'
+import PresetResultModal from '../Modals/PresetResultModal.vue'
 import { usePresets } from '../../composables/usePresets.js'
 import { useServices } from '../../composables/useServices.js'
 
@@ -58,14 +73,20 @@ const { allServices, loadServicesData } = useServices()
 
 const {
     showPresetModal,
+    showResultModal,
     selectedPreset,
     applyingPreset,
+    presetResults,
+    progress,
+    totalInPreset,
+    totalServices,
+    currentServiceName,
     openPresetModal,
     applyPreset,
+    closeResultModal,
 } = usePresets(allServices)
 
 onMounted(() => {
-    // Delay loading to allow UI to render first
     setTimeout(async () => {
         await loadServicesData()
     }, 100)

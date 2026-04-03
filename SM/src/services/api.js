@@ -52,6 +52,10 @@ async function removeStartupApp(app) {
     return await invoke('remove_startup_app', { app })
 }
 
+async function toggleStartupApp(app) {
+    return await invoke('toggle_startup_app', { app })
+}
+
 async function getHistory() {
     return await invoke('get_history')
 }
@@ -76,6 +80,7 @@ export {
     getStartupApps,
     addStartupApp,
     removeStartupApp,
+    toggleStartupApp,
     getHistory,
     getHistoryByType,
     clearHistoryAction,
