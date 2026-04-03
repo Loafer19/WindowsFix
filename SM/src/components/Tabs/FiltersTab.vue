@@ -211,14 +211,9 @@ import ConfirmDisableModal from '../Modals/ConfirmDisableModal.vue'
 import ServiceDetailsModal from '../Modals/ServiceDetailsModal.vue'
 
 import { useServices } from '../../composables/useServices.js'
-import { useModals } from '../../composables/useModals.js'
 import { getStartupTypeColor, getStatusColor } from '../../services/helpers.js'
 
-const { allServices, loading, error, reloadInfo, handleServiceAction, disable, totalServices, servicesByStatus, servicesByStartupType, filteredServices, searchQuery, selectedStatus, selectedStartupType, clearFilters, loadServicesData, refresh } = useServices()
-
-const { showModal, selectedService, showDetailsModal, selectedServiceForDetails, openModal, confirmDisable: confirmDisableModal, openModalForDetails } = useModals()
-
-const confirmDisable = () => confirmDisableModal(disable)
+const { loading, error, reloadInfo, handleServiceAction, totalServices, servicesByStatus, servicesByStartupType, filteredServices, searchQuery, selectedStatus, selectedStartupType, clearFilters, loadServicesData, refresh, showModal, selectedService, showDetailsModal, selectedServiceForDetails, openModal, confirmDisable, openModalForDetails } = useServices()
 
 onMounted(() => {
     // Delay loading to allow UI to render first

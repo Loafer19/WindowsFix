@@ -232,6 +232,30 @@ export function useServices() {
     loadFiltersFromStorage()
     filterServices()
 
+    // Modal functionality
+    const showModal = ref(false)
+    const selectedService = ref(null)
+    const showDetailsModal = ref(false)
+    const selectedServiceForDetails = ref(null)
+
+    const openModal = (service) => {
+        selectedService.value = service
+        showModal.value = true
+    }
+
+    const confirmDisable = async () => {
+        if (selectedService.value) {
+            await disable(selectedService.value)
+            showModal.value = false
+            selectedService.value = null
+        }
+    }
+
+    const openModalForDetails = (service) => {
+        selectedServiceForDetails.value = service
+        showDetailsModal.value = true
+    }
+
     return {
         allServices,
         error,
@@ -251,5 +275,12 @@ export function useServices() {
         filterServices,
         handleFilter,
         clearFilters,
+        showModal,
+        selectedService,
+        showDetailsModal,
+        selectedServiceForDetails,
+        openModal,
+        confirmDisable,
+        openModalForDetails,
     }
 }

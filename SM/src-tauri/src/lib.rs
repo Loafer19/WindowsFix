@@ -1,22 +1,17 @@
-mod ai;
 mod config;
-mod database;
-mod history;
-mod models;
-mod startup_apps;
-mod windows_api;
-mod windows_services;
+mod core;
+mod platform;
 
 use std::sync::Mutex;
 use std::time::SystemTime;
 
 use tauri::State;
 
-use ai::fetch_service_info_from_ai;
-use config::AppConfig;
-use history::HistoryEntry;
-use models::{AppState, ServiceInfo, ServicesCache, StartupApp, WindowsService};
-use windows_services::{
+use core::ai::fetch_service_info_from_ai;
+use config::config::AppConfig;
+use core::history::HistoryEntry;
+use core::models::{AppError, AppState, ServiceInfo, ServicesCache, StartupApp, WindowsService};
+use platform::windows_services::{
     disable_windows_service, get_default_service_info, get_windows_services,
     restart_windows_service, set_windows_service_startup_type, start_windows_service,
     stop_windows_service,
@@ -26,7 +21,7 @@ use windows_services::{
 const MAX_HISTORY_ENTRIES: u32 = 500;
 
 #[tauri::command]
-async fn get_services(state: State<'_, AppState>) -> Result<Vec<WindowsService>, String> {
+async fn get_services(state: State<'_, AppState>) -> Result<Vec<WindowsService>, AppError> {
     eprintln!("DEBUG: get_services called");
     let needs_refresh = {
         let cache = state.services_cache.lock().unwrap();
@@ -47,7 +42,7 @@ async fn get_services(state: State<'_, AppState>) -> Result<Vec<WindowsService>,
                 cache.data = new_data;
                 cache.last_updated = SystemTime::now();
             }
-            Err(e) => return Err(format!("Failed to refresh services cache: {}", e)),
+            Err(e) => return Err(e),
         }
     }
 
@@ -57,7 +52,7 @@ async fn get_services(state: State<'_, AppState>) -> Result<Vec<WindowsService>,
 }
 
 #[tauri::command]
-async fn refresh_services(state: State<'_, AppState>) -> Result<(), String> {
+async fn refresh_services(state: State<'_, AppState>) -> Result<(), AppError> {
     match refresh_services_cache(&state).await {
         Ok(new_data) => {
             let mut cache = state.services_cache.lock().unwrap();
@@ -65,7 +60,7 @@ async fn refresh_services(state: State<'_, AppState>) -> Result<(), String> {
             cache.last_updated = SystemTime::now();
             Ok(())
         }
-        Err(e) => Err(format!("Failed to refresh services cache: {}", e)),
+        Err(e) => Err(e),
     }
 }
 
@@ -73,7 +68,7 @@ async fn refresh_services(state: State<'_, AppState>) -> Result<(), String> {
 async fn reload_service_info(
     service_name: String,
     state: State<'_, AppState>,
-) -> Result<ServiceInfo, String> {
+) -> Result<ServiceInfo, AppError> {
     let info = match fetch_service_info_from_ai(&service_name).await {
         Ok(ai_info) => ai_info,
         Err(_) => {
@@ -96,7 +91,7 @@ async fn reload_service_info(
     let mut services_info = state.services_info.lock().unwrap();
     services_info.insert(service_name.clone(), info.clone());
     let db = state.db.lock().unwrap();
-    database::save_service_info(&db, &service_name, &info);
+    let _ = core::database::save_service_info(&db, &service_name, &info);
 
     Ok(info)
 }
@@ -105,7 +100,7 @@ async fn reload_service_info(
 async fn disable_service(
     service_name: String,
     state: State<'_, AppState>,
-) -> Result<WindowsService, String> {
+) -> Result<WindowsService, AppError> {
     let old_startup = get_cached_startup_type(&state, &service_name);
     let service_name_clone = service_name.clone();
     match tokio::task::spawn_blocking(move || disable_windows_service(&service_name_clone)).await {
@@ -121,9 +116,9 @@ async fn disable_service(
                 );
                 Ok(updated_service)
             }
-            Err(e) => Err(format!("Failed to disable service: {}", e)),
+            Err(e) => Err(e),
         },
-        Err(e) => Err(format!("Task panicked: {:?}", e)),
+        Err(e) => Err(AppError::TaskPanic { message: format!("{:?}", e) }),
     }
 }
 
@@ -131,7 +126,7 @@ async fn disable_service(
 async fn start_service(
     service_name: String,
     state: State<'_, AppState>,
-) -> Result<WindowsService, String> {
+) -> Result<WindowsService, AppError> {
     let old_status = get_cached_status(&state, &service_name);
     let service_name_clone = service_name.clone();
     match tokio::task::spawn_blocking(move || start_windows_service(&service_name_clone)).await {
@@ -147,9 +142,9 @@ async fn start_service(
                 );
                 Ok(updated_service)
             }
-            Err(e) => Err(format!("Failed to start service: {}", e)),
+            Err(e) => Err(e),
         },
-        Err(e) => Err(format!("Task panicked: {:?}", e)),
+        Err(e) => Err(AppError::TaskPanic { message: format!("{:?}", e) }),
     }
 }
 
@@ -157,7 +152,7 @@ async fn start_service(
 async fn stop_service(
     service_name: String,
     state: State<'_, AppState>,
-) -> Result<WindowsService, String> {
+) -> Result<WindowsService, AppError> {
     let old_status = get_cached_status(&state, &service_name);
     let service_name_clone = service_name.clone();
     match tokio::task::spawn_blocking(move || stop_windows_service(&service_name_clone)).await {
@@ -173,9 +168,9 @@ async fn stop_service(
                 );
                 Ok(updated_service)
             }
-            Err(e) => Err(format!("Failed to stop service: {}", e)),
+            Err(e) => Err(e),
         },
-        Err(e) => Err(format!("Task panicked: {:?}", e)),
+        Err(e) => Err(AppError::TaskPanic { message: format!("{:?}", e) }),
     }
 }
 
@@ -183,7 +178,7 @@ async fn stop_service(
 async fn restart_service(
     service_name: String,
     state: State<'_, AppState>,
-) -> Result<WindowsService, String> {
+) -> Result<WindowsService, AppError> {
     let old_status = get_cached_status(&state, &service_name);
     let service_name_clone = service_name.clone();
     match tokio::task::spawn_blocking(move || restart_windows_service(&service_name_clone)).await {
@@ -199,9 +194,9 @@ async fn restart_service(
                 );
                 Ok(updated_service)
             }
-            Err(e) => Err(format!("Failed to restart service: {}", e)),
+            Err(e) => Err(e),
         },
-        Err(e) => Err(format!("Task panicked: {:?}", e)),
+        Err(e) => Err(AppError::TaskPanic { message: format!("{:?}", e) }),
     }
 }
 
@@ -210,7 +205,7 @@ async fn set_startup_type(
     service_name: String,
     startup_type: String,
     state: State<'_, AppState>,
-) -> Result<WindowsService, String> {
+) -> Result<WindowsService, AppError> {
     let old_startup = get_cached_startup_type(&state, &service_name);
     let sn = service_name.clone();
     let st = startup_type.clone();
@@ -227,15 +222,15 @@ async fn set_startup_type(
                 );
                 Ok(updated_service)
             }
-            Err(e) => Err(format!("Failed to set startup type: {}", e)),
+            Err(e) => Err(e),
         },
-        Err(e) => Err(format!("Task panicked: {:?}", e)),
+        Err(e) => Err(AppError::TaskPanic { message: format!("{:?}", e) }),
     }
 }
 
 #[tauri::command]
-async fn get_startup_apps(state: State<'_, AppState>) -> Result<Vec<StartupApp>, String> {
-    match tokio::task::spawn_blocking(startup_apps::list_startup_apps).await {
+async fn get_startup_apps(state: State<'_, AppState>) -> Result<Vec<StartupApp>, AppError> {
+    match tokio::task::spawn_blocking(platform::startup_apps::list_startup_apps).await {
         Ok(result) => match result {
             Ok(apps) => {
                 *state.startup_apps_cache.lock().unwrap() = apps.clone();
@@ -243,7 +238,7 @@ async fn get_startup_apps(state: State<'_, AppState>) -> Result<Vec<StartupApp>,
             }
             Err(e) => Err(e),
         },
-        Err(e) => Err(format!("Task panicked: {:?}", e)),
+        Err(e) => Err(AppError::TaskPanic { message: format!("{:?}", e) }),
     }
 }
 
@@ -251,12 +246,12 @@ async fn get_startup_apps(state: State<'_, AppState>) -> Result<Vec<StartupApp>,
 async fn remove_startup_app(
     app: StartupApp,
     state: State<'_, AppState>,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     let name = app.name.clone();
     let location = app.location.clone();
     let app_clone = app.clone();
     match tokio::task::spawn_blocking(move || {
-        startup_apps::remove_startup_app(&app_clone.name, &app_clone.location)
+        platform::startup_apps::remove_startup_app(&app_clone.name, &app_clone.location)
     })
     .await
     {
@@ -264,12 +259,12 @@ async fn remove_startup_app(
             Ok(()) => {
                 let entry = HistoryEntry::startup_app(&name, "remove", location.as_str());
                 state.history.lock().unwrap().push(entry.clone());
-                database::append_history(&state.db.lock().unwrap(), &entry);
+                let _ = core::database::append_history(&state.db.lock().unwrap(), &entry);
                 Ok(())
             }
             Err(e) => Err(e),
         },
-        Err(e) => Err(format!("Task panicked: {:?}", e)),
+        Err(e) => Err(AppError::TaskPanic { message: format!("{:?}", e) }),
     }
 }
 
@@ -277,10 +272,10 @@ async fn remove_startup_app(
 async fn add_startup_app(
     app: StartupApp,
     state: State<'_, AppState>,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     let app_clone = app.clone();
     match tokio::task::spawn_blocking(move || {
-        startup_apps::add_startup_app(&app_clone)
+        platform::startup_apps::add_startup_app(&app_clone)
     })
     .await
     {
@@ -288,12 +283,12 @@ async fn add_startup_app(
             Ok(()) => {
                 let entry = HistoryEntry::startup_app(&app.name, "add", app.location.as_str());
                 state.history.lock().unwrap().push(entry.clone());
-                database::append_history(&state.db.lock().unwrap(), &entry);
+                let _ = core::database::append_history(&state.db.lock().unwrap(), &entry);
                 Ok(())
             }
             Err(e) => Err(e),
         },
-        Err(e) => Err(format!("Task panicked: {:?}", e)),
+        Err(e) => Err(AppError::TaskPanic { message: format!("{:?}", e) }),
     }
 }
 
@@ -302,7 +297,7 @@ async fn add_startup_app(
 async fn get_history(
     filter: Option<String>,
     state: State<'_, AppState>,
-) -> Result<Vec<HistoryEntry>, String> {
+) -> Result<Vec<HistoryEntry>, AppError> {
     let history = state.history.lock().unwrap();
     let entries: Vec<HistoryEntry> = match filter.as_deref() {
         Some("service") => history
@@ -324,16 +319,16 @@ async fn get_history(
 async fn get_history_by_type(
     entry_type: String,
     state: State<'_, AppState>,
-) -> Result<Vec<HistoryEntry>, String> {
+) -> Result<Vec<HistoryEntry>, AppError> {
     get_history(Some(entry_type), state).await
 }
 
 #[tauri::command]
-async fn clear_history(state: State<'_, AppState>) -> Result<(), String> {
+async fn clear_history(state: State<'_, AppState>) -> Result<(), AppError> {
     let mut history = state.history.lock().unwrap();
     history.clear();
     let db = state.db.lock().unwrap();
-    database::clear_history(&db);
+    let _ = core::database::clear_history(&db);
     Ok(())
 }
 
@@ -366,10 +361,10 @@ fn record_service_history(
 ) {
     let entry = HistoryEntry::service(service_name, action, old_value, new_value);
     state.history.lock().unwrap().push(entry.clone());
-    database::append_history(&state.db.lock().unwrap(), &entry);
+    let _ = core::database::append_history(&state.db.lock().unwrap(), &entry);
 }
 
-async fn refresh_services_cache(state: &AppState) -> Result<Vec<WindowsService>, String> {
+async fn refresh_services_cache(state: &AppState) -> Result<Vec<WindowsService>, AppError> {
     eprintln!("DEBUG: Starting refresh_services_cache");
     match get_windows_services().await {
         Ok(services) => {
@@ -410,12 +405,12 @@ async fn refresh_services_cache(state: &AppState) -> Result<Vec<WindowsService>,
 
             eprintln!("DEBUG: Finished processing services, saving to DB");
             let db = state.db.lock().unwrap();
-            database::save_all_service_info(&db, &info_map);
+            let _ = core::database::save_all_service_info(&db, &info_map);
             eprintln!("DEBUG: Saved service info to DB");
 
             Ok(processed_services)
         }
-        Err(e) => Err(format!("Failed to get Windows services: {}", e)),
+        Err(e) => Err(AppError::WindowsApi { message: format!("Failed to get Windows services: {}", e) }),
     }
 }
 
@@ -432,21 +427,21 @@ pub fn run() {
     eprintln!("DEBUG: Config loaded");
 
     eprintln!("DEBUG: Opening database");
-    let db = match database::open_db() {
+    let db = match core::database::open_db() {
         Ok(conn) => conn,
         Err(e) => {
             eprintln!("Warning: Could not open database, falling back to in-memory: {}", e);
-            database::open_memory_db().expect("In-memory SQLite should always work")
+            core::database::open_memory_db().expect("In-memory SQLite should always work")
         }
     };
     eprintln!("DEBUG: Database opened");
 
     eprintln!("DEBUG: Loading service info from DB");
-    let services_info = database::load_service_info(&db, config.service_info_ttl.as_secs());
+    let services_info = core::database::load_service_info(&db, config.service_info_ttl.as_secs());
     eprintln!("DEBUG: Loaded {} service info entries", services_info.len());
 
     eprintln!("DEBUG: Loading history from DB");
-    let history = database::load_history(&db, MAX_HISTORY_ENTRIES);
+    let history = core::database::load_history(&db, MAX_HISTORY_ENTRIES);
     eprintln!("DEBUG: Loaded {} history entries", history.len());
 
     let app_state = AppState {

@@ -2,12 +2,12 @@ use std::time::Duration;
 
 use tokio::time::timeout;
 
-use crate::models::ServiceInfo;
+use super::models::{AppError, ServiceInfo};
 
-pub async fn fetch_service_info_from_ai(service_name: &str) -> Result<ServiceInfo, String> {
+pub async fn fetch_service_info_from_ai(service_name: &str) -> Result<ServiceInfo, AppError> {
     let api_key = std::env::var("GROK_API_KEY").unwrap_or_default();
     if api_key.is_empty() {
-        return Err("Grok API key not configured. Please set GROK_API_KEY in your .env file.".to_string());
+        return Err(AppError::Config { message: "Grok API key not configured. Please set GROK_API_KEY in your .env file.".to_string() });
     }
 
     let timeout_secs: u64 = std::env::var("GROK_API_TIMEOUT")
@@ -39,23 +39,23 @@ pub async fn fetch_service_info_from_ai(service_name: &str) -> Result<ServiceInf
             .send(),
     )
     .await
-    .map_err(|_| format!("AI API request timed out after {} seconds", timeout_secs))?
-    .map_err(|e| format!("AI API request failed: {}", e))?;
+    .map_err(|_| AppError::Io { message: format!("AI API request timed out after {} seconds", timeout_secs) })?
+    .map_err(|e| AppError::Io { message: format!("AI API request failed: {}", e) })?;
 
     if !response.status().is_success() {
         let status = response.status();
         let error_text = response.text().await.unwrap_or_default();
-        return Err(format!("AI API error {}: {}", status, error_text));
+        return Err(AppError::Io { message: format!("AI API error {}: {}", status, error_text) });
     }
 
     let data: serde_json::Value = response
         .json()
         .await
-        .map_err(|e| format!("Failed to parse AI response: {}", e))?;
+        .map_err(|e| AppError::Io { message: format!("Failed to parse AI response: {}", e) })?;
 
     let ai_response = data["choices"][0]["message"]["content"]
         .as_str()
-        .ok_or("Invalid AI response format: missing content".to_string())?;
+        .ok_or(AppError::Validation { message: "Invalid AI response format: missing content".to_string() })?;
 
     if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(ai_response) {
         Ok(ServiceInfo {

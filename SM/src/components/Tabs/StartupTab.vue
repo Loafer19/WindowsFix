@@ -71,7 +71,8 @@
                                 Actions
                             </label>
                             <div class="flex gap-2">
-                                <Button :text="'Refresh'" @clicked="refresh" class="btn btn-info btn-square" :is-loading="loading">
+                                <Button :text="'Refresh'" @clicked="refresh" class="btn btn-info btn-square"
+                                    :is-loading="loading">
                                     <Icon name="refresh" />
                                 </Button>
                                 <Button :text="'Clear Filters'" @clicked="clearFilters"
@@ -138,12 +139,12 @@
                         </td>
                         <td>
                             <div class="flex gap-2">
-                                <Button class="btn btn-info btn-xs" @clicked="editApp(app)">
-                                    <Icon name="pencil" class="w-3 h-3" />
+                                <Button class="btn btn-info btn-sm btn-square" @clicked="editApp(app)">
+                                    <Icon name="edit" />
                                 </Button>
-                                <Button class="btn btn-error btn-xs" @clicked="confirmRemove(app)"
+                                <Button class="btn btn-success btn-sm btn-square" @clicked="confirmRemove(app)"
                                     :is-loading="removingApp === `${app.name}-${app.location}`">
-                                    <Icon name="trash" class="w-3 h-3" />
+                                    <Icon name="shutDown" />
                                 </Button>
                             </div>
                         </td>

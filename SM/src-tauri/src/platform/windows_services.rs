@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use windows::core::PCWSTR;
 use windows::Win32::System::Services::*;
 
-use crate::models::{ServiceInfo, WindowsService};
-use crate::windows_api::{to_wide_string, ScHandle};
+use crate::core::models::{AppError, ServiceInfo, WindowsService};
+use super::windows_api::{to_wide_string, ScHandle};
 
 fn service_status_str(state: SERVICE_STATUS_CURRENT_STATE) -> &'static str {
     match state {
@@ -48,12 +48,12 @@ pub fn get_default_service_info(service_name: &str, defaults: &HashMap<String, S
     }
 }
 
-pub async fn get_windows_services() -> Result<Vec<WindowsService>, String> {
+pub async fn get_windows_services() -> Result<Vec<WindowsService>, AppError> {
     eprintln!("DEBUG: Starting get_windows_services");
     unsafe {
         eprintln!("DEBUG: Opening SCM");
         let scm = OpenSCManagerW(None, None, SC_MANAGER_ENUMERATE_SERVICE)
-            .map_err(|e| format!("Failed to open SCM: {:?}", e))?;
+            .map_err(|e| AppError::WindowsApi { message: format!("Failed to open SCM: {:?}", e) })?;
         let _scm_guard = ScHandle::new(scm);
         eprintln!("DEBUG: SCM opened successfully");
 
@@ -76,7 +76,7 @@ pub async fn get_windows_services() -> Result<Vec<WindowsService>, String> {
         if let Err(e) = result {
             // ERROR_MORE_DATA (0x800700EA) is expected when buffer is too small
             if e.code().0 != 0x800700EAu32 as i32 {
-                return Err(format!("Failed to get buffer size: {:?}", e));
+                return Err(AppError::WindowsApi { message: format!("Failed to get buffer size: {:?}", e) });
             }
         }
 
@@ -96,7 +96,7 @@ pub async fn get_windows_services() -> Result<Vec<WindowsService>, String> {
             eprintln!("DEBUG: Attempt {} of {}", attempts, MAX_ATTEMPTS);
             if attempts > MAX_ATTEMPTS {
                 eprintln!("DEBUG: Too many attempts");
-                return Err("Too many attempts to enumerate services".to_string());
+                return Err(AppError::WindowsApi { message: "Too many attempts to enumerate services".to_string() });
             }
 
             eprintln!("DEBUG: Calling EnumServicesStatusExW with buffer");
@@ -120,7 +120,7 @@ pub async fn get_windows_services() -> Result<Vec<WindowsService>, String> {
                     continue;
                 } else {
                     eprintln!("DEBUG: Failed to enumerate services: {:?}", e);
-                    return Err(format!("Failed to enumerate services: {:?}", e));
+                    return Err(AppError::WindowsApi { message: format!("Failed to enumerate services: {:?}", e) });
                 }
             } else {
                 eprintln!("DEBUG: Enumeration successful, services_returned: {}", services_returned);
@@ -140,8 +140,8 @@ pub async fn get_windows_services() -> Result<Vec<WindowsService>, String> {
             if i % 50 == 0 {
                 eprintln!("DEBUG: Processing service {} of {}", i + 1, service_infos.len());
             }
-            let name = service_info.lpServiceName.to_string().map_err(|_| "Invalid service name")?;
-            let mut display_name = service_info.lpDisplayName.to_string().map_err(|_| "Invalid display name")?;
+            let name = service_info.lpServiceName.to_string().map_err(|_| AppError::WindowsApi { message: "Invalid service name".to_string() })?;
+            let mut display_name = service_info.lpDisplayName.to_string().map_err(|_| AppError::WindowsApi { message: "Invalid display name".to_string() })?;
             if display_name.is_empty() {
                 display_name = name.clone();
             }
@@ -184,18 +184,18 @@ fn apply_service_operation<F>(
     service_name: &str,
     access: u32,
     f: F,
-) -> Result<WindowsService, String>
+) -> Result<WindowsService, AppError>
 where
-    F: FnOnce(SC_HANDLE) -> Result<(), String>,
+    F: FnOnce(SC_HANDLE) -> Result<(), AppError>,
 {
     unsafe {
         let scm = OpenSCManagerW(None, None, SC_MANAGER_CONNECT)
-            .map_err(|e| format!("Failed to open SCM: {:?}", e))?;
+            .map_err(|e| AppError::WindowsApi { message: format!("Failed to open SCM: {:?}", e) })?;
         let _scm_guard = ScHandle::new(scm);
 
         let name_wide = to_wide_string(service_name);
         let service = OpenServiceW(scm, PCWSTR::from_raw(name_wide.as_ptr()), access)
-            .map_err(|e| format!("Failed to open service '{}': {:?}", service_name, e))?;
+            .map_err(|e| AppError::WindowsApi { message: format!("Failed to open service '{}': {:?}", service_name, e) })?;
         let service_guard = ScHandle::new(service);
 
         f(service_guard.get())?;
@@ -219,30 +219,30 @@ where
     }
 }
 
-pub fn start_windows_service(service_name: &str) -> Result<WindowsService, String> {
+pub fn start_windows_service(service_name: &str) -> Result<WindowsService, AppError> {
     apply_service_operation(
         service_name,
         SERVICE_START | SERVICE_QUERY_STATUS | SERVICE_QUERY_CONFIG,
         |service| unsafe {
             StartServiceW(service, None)
-                .map_err(|e| format!("Failed to start service: {:?}", e))
+                .map_err(|e| AppError::WindowsApi { message: format!("Failed to start service: {:?}", e) })
         },
     )
 }
 
-pub fn stop_windows_service(service_name: &str) -> Result<WindowsService, String> {
+pub fn stop_windows_service(service_name: &str) -> Result<WindowsService, AppError> {
     apply_service_operation(
         service_name,
         SERVICE_STOP | SERVICE_QUERY_STATUS | SERVICE_QUERY_CONFIG,
         |service| unsafe {
             let mut status = SERVICE_STATUS::default();
             ControlService(service, SERVICE_CONTROL_STOP, &mut status)
-                .map_err(|e| format!("Failed to stop service: {:?}", e))
+                .map_err(|e| AppError::WindowsApi { message: format!("Failed to stop service: {:?}", e) })
         },
     )
 }
 
-pub fn restart_windows_service(service_name: &str) -> Result<WindowsService, String> {
+pub fn restart_windows_service(service_name: &str) -> Result<WindowsService, AppError> {
     apply_service_operation(
         service_name,
         SERVICE_START | SERVICE_STOP | SERVICE_QUERY_STATUS | SERVICE_QUERY_CONFIG,
@@ -259,7 +259,7 @@ pub fn restart_windows_service(service_name: &str) -> Result<WindowsService, Str
                 std::thread::sleep(std::time::Duration::from_millis(500));
             }
             StartServiceW(service, None)
-                .map_err(|e| format!("Failed to start service: {:?}", e))
+                .map_err(|e| AppError::WindowsApi { message: format!("Failed to start service: {:?}", e) })
         },
     )
 }
@@ -267,14 +267,14 @@ pub fn restart_windows_service(service_name: &str) -> Result<WindowsService, Str
 pub fn set_windows_service_startup_type(
     service_name: &str,
     startup_type: &str,
-) -> Result<WindowsService, String> {
+) -> Result<WindowsService, AppError> {
     let start_type = match startup_type {
         "Automatic" => SERVICE_AUTO_START,
         "Manual" => SERVICE_DEMAND_START,
         "Disabled" => SERVICE_DISABLED,
         "Boot" => SERVICE_BOOT_START,
         "System" => SERVICE_SYSTEM_START,
-        _ => return Err(format!("Unknown startup type: {}", startup_type)),
+        _ => return Err(AppError::Validation { message: format!("Unknown startup type: {}", startup_type) }),
     };
 
     apply_service_operation(
@@ -290,12 +290,12 @@ pub fn set_windows_service_startup_type(
                 SERVICE_ERROR(error_control.0),
                 None, None, None, None, None, None, None,
             )
-            .map_err(|e| format!("Failed to change startup type: {:?}", e))
+            .map_err(|e| AppError::WindowsApi { message: format!("Failed to change startup type: {:?}", e) })
         },
     )
 }
 
-pub fn disable_windows_service(service_name: &str) -> Result<WindowsService, String> {
+pub fn disable_windows_service(service_name: &str) -> Result<WindowsService, AppError> {
     apply_service_operation(
         service_name,
         SERVICE_CHANGE_CONFIG | SERVICE_STOP | SERVICE_QUERY_STATUS | SERVICE_QUERY_CONFIG,
@@ -316,7 +316,7 @@ pub fn disable_windows_service(service_name: &str) -> Result<WindowsService, Str
                 SERVICE_ERROR(error_control.0),
                 None, None, None, None, None, None, None,
             )
-            .map_err(|e| format!("Failed to disable service: {:?}", e))
+            .map_err(|e| AppError::WindowsApi { message: format!("Failed to disable service: {:?}", e) })
         },
     )
 }

@@ -40,7 +40,7 @@ const tabs = ref([
         id: 'startup',
         name: 'Startup Apps',
         component: markRaw(StartupTab),
-        icon: 'rocket',
+        icon: 'spaceShip2',
     },
     {
         id: 'history',

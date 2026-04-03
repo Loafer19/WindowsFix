@@ -4,8 +4,8 @@ use windows::core::{PCWSTR, PWSTR};
 use windows::Win32::Foundation::{ERROR_NO_MORE_ITEMS, ERROR_SUCCESS};
 use windows::Win32::System::Registry::*;
 
-use crate::models::{StartupApp, StartupLocation};
-use crate::windows_api::to_wide_string;
+use super::windows_api::to_wide_string;
+use crate::core::models::{AppError, StartupApp, StartupLocation};
 
 const RUN_KEY: &str = "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run";
 
@@ -14,56 +14,25 @@ const MAX_REGISTRY_NAME_SIZE: usize = 256;
 /// Maximum byte size for a registry value data buffer.
 const MAX_REGISTRY_VALUE_SIZE: usize = 2048;
 
-/// Parse a command line into executable path and arguments, handling quotes properly.
-fn parse_command_line(command: &str) -> (String, Option<String>) {
-    let command = command.trim().replace('\t', " ");
-    if command.is_empty() {
-        return (String::new(), None);
-    }
-
-    let chars: Vec<char> = command.chars().collect();
-    let mut i = 0;
-    let mut path = String::new();
-    let mut in_quotes = false;
-
-    // Parse the executable path (first token, handling quotes)
-    while i < chars.len() {
-        let c = chars[i];
-        if c == '"' {
-            in_quotes = !in_quotes;
-        } else if c.is_whitespace() && !in_quotes {
-            break;
-        } else {
-            path.push(c);
-        }
-        i += 1;
-    }
-
-    // Skip whitespace after path
-    while i < chars.len() && chars[i].is_whitespace() {
-        i += 1;
-    }
-
-    // Remaining is arguments
-    let arguments = if i < chars.len() {
-        Some(chars[i..].iter().collect::<String>().trim().to_string())
-    } else {
-        None
-    };
-
-    (path, arguments)
-}
-
 /// List all startup entries from HKCU, HKLM, and the user startup folder.
-pub fn list_startup_apps() -> Result<Vec<StartupApp>, String> {
+pub fn list_startup_apps() -> Result<Vec<StartupApp>, AppError> {
     let mut apps = Vec::new();
-    apps.extend(read_registry_startup(HKEY_CURRENT_USER, StartupLocation::HkeyCurrentUser)?);
-    apps.extend(read_registry_startup(HKEY_LOCAL_MACHINE, StartupLocation::HkeyLocalMachine)?);
+    apps.extend(read_registry_startup(
+        HKEY_CURRENT_USER,
+        StartupLocation::HkeyCurrentUser,
+    )?);
+    apps.extend(read_registry_startup(
+        HKEY_LOCAL_MACHINE,
+        StartupLocation::HkeyLocalMachine,
+    )?);
     apps.extend(read_startup_folder()?);
     Ok(apps)
 }
 
-fn read_registry_startup(hive: HKEY, location: StartupLocation) -> Result<Vec<StartupApp>, String> {
+fn read_registry_startup(
+    hive: HKEY,
+    location: StartupLocation,
+) -> Result<Vec<StartupApp>, AppError> {
     let run_wide = to_wide_string(RUN_KEY);
     let mut apps = Vec::new();
 
@@ -150,7 +119,7 @@ fn read_registry_startup(hive: HKEY, location: StartupLocation) -> Result<Vec<St
     Ok(apps)
 }
 
-fn read_startup_folder() -> Result<Vec<StartupApp>, String> {
+fn read_startup_folder() -> Result<Vec<StartupApp>, AppError> {
     let startup_dir = startup_folder_path();
     let mut apps = Vec::new();
 
@@ -193,7 +162,7 @@ fn startup_folder_path() -> PathBuf {
 }
 
 /// Remove a startup entry from the registry or startup folder.
-pub fn remove_startup_app(name: &str, location: &StartupLocation) -> Result<(), String> {
+pub fn remove_startup_app(name: &str, location: &StartupLocation) -> Result<(), AppError> {
     match location {
         StartupLocation::HkeyCurrentUser => remove_registry_entry(HKEY_CURRENT_USER, name),
         StartupLocation::HkeyLocalMachine => remove_registry_entry(HKEY_LOCAL_MACHINE, name),
@@ -201,7 +170,7 @@ pub fn remove_startup_app(name: &str, location: &StartupLocation) -> Result<(), 
     }
 }
 
-fn remove_registry_entry(hive: HKEY, name: &str) -> Result<(), String> {
+fn remove_registry_entry(hive: HKEY, name: &str) -> Result<(), AppError> {
     let run_wide = to_wide_string(RUN_KEY);
     let name_wide = to_wide_string(name);
 
@@ -215,32 +184,36 @@ fn remove_registry_entry(hive: HKEY, name: &str) -> Result<(), String> {
             &mut key,
         )
         .ok()
-        .map_err(|e| format!("Failed to open registry key: {:?}", e))?;
+        .map_err(|e| AppError::WindowsApi {
+            message: format!("Failed to open registry key: {:?}", e),
+        })?;
 
         let result = RegDeleteValueW(key, PCWSTR::from_raw(name_wide.as_ptr()))
             .ok()
-            .map_err(|e| format!("Failed to delete registry value '{}': {:?}", name, e));
+            .map_err(|e| AppError::WindowsApi {
+                message: format!("Failed to delete registry value '{}': {:?}", name, e),
+            });
 
         let _ = RegCloseKey(key).ok();
         result
     }
 }
 
-fn remove_folder_entry(name: &str) -> Result<(), String> {
+fn remove_folder_entry(name: &str) -> Result<(), AppError> {
     let path = startup_folder_path().join(format!("{}.lnk", name));
     if path.exists() {
-        std::fs::remove_file(&path)
-            .map_err(|e| format!("Failed to remove startup entry '{}': {}", name, e))
+        std::fs::remove_file(&path).map_err(|e| AppError::Io {
+            message: format!("Failed to remove startup entry '{}': {}", name, e),
+        })
     } else {
-        Err(format!(
-            "Startup entry '{}' not found in the startup folder",
-            name
-        ))
+        Err(AppError::Validation {
+            message: format!("Startup entry '{}' not found in the startup folder", name),
+        })
     }
 }
 
 /// Add a startup registry entry (HKCU or HKLM only; startup folder not supported).
-pub fn add_startup_app(app: &StartupApp) -> Result<(), String> {
+pub fn add_startup_app(app: &StartupApp) -> Result<(), AppError> {
     let command = if let Some(args) = &app.arguments {
         format!("{} {}", app.path, args)
     } else {
@@ -248,15 +221,20 @@ pub fn add_startup_app(app: &StartupApp) -> Result<(), String> {
     };
 
     match &app.location {
-        StartupLocation::HkeyCurrentUser => add_registry_entry(HKEY_CURRENT_USER, &app.name, &command),
-        StartupLocation::HkeyLocalMachine => add_registry_entry(HKEY_LOCAL_MACHINE, &app.name, &command),
-        StartupLocation::StartupFolder => Err(
-            "Adding entries to the startup folder is not supported via this interface".to_string(),
-        ),
+        StartupLocation::HkeyCurrentUser => {
+            add_registry_entry(HKEY_CURRENT_USER, &app.name, &command)
+        }
+        StartupLocation::HkeyLocalMachine => {
+            add_registry_entry(HKEY_LOCAL_MACHINE, &app.name, &command)
+        }
+        StartupLocation::StartupFolder => Err(AppError::Validation {
+            message: "Adding entries to the startup folder is not supported via this interface"
+                .to_string(),
+        }),
     }
 }
 
-fn add_registry_entry(hive: HKEY, name: &str, command: &str) -> Result<(), String> {
+fn add_registry_entry(hive: HKEY, name: &str, command: &str) -> Result<(), AppError> {
     let run_wide = to_wide_string(RUN_KEY);
     let name_wide = to_wide_string(name);
     let command_wide = to_wide_string(command);
@@ -271,13 +249,13 @@ fn add_registry_entry(hive: HKEY, name: &str, command: &str) -> Result<(), Strin
             &mut key,
         )
         .ok()
-        .map_err(|e| format!("Failed to open registry key: {:?}", e))?;
+        .map_err(|e| AppError::WindowsApi {
+            message: format!("Failed to open registry key: {:?}", e),
+        })?;
 
         // command_wide includes the null terminator; pass the full byte slice
-        let data = std::slice::from_raw_parts(
-            command_wide.as_ptr() as *const u8,
-            command_wide.len() * 2,
-        );
+        let data =
+            std::slice::from_raw_parts(command_wide.as_ptr() as *const u8, command_wide.len() * 2);
         let result = RegSetValueExW(
             key,
             PCWSTR::from_raw(name_wide.as_ptr()),
@@ -286,7 +264,9 @@ fn add_registry_entry(hive: HKEY, name: &str, command: &str) -> Result<(), Strin
             Some(data),
         )
         .ok()
-        .map_err(|e| format!("Failed to set registry value '{}': {:?}", name, e));
+        .map_err(|e| AppError::WindowsApi {
+            message: format!("Failed to set registry value '{}': {:?}", name, e),
+        });
 
         let _ = RegCloseKey(key).ok();
         result

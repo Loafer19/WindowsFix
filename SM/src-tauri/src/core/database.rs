@@ -2,20 +2,22 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use rusqlite::{params, Connection, Result as SqlResult};
+use rusqlite::{params, Connection};
 
-use crate::history::HistoryEntry;
-use crate::models::ServiceInfo;
+use super::history::HistoryEntry;
+use super::models::{AppError, ServiceInfo};
 
 /// Path to the SQLite database file, placed next to the executable.
 fn db_path() -> Option<PathBuf> {
-    std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().and_then(|p| p.parent()).map(|p| p.join("services.db")))
+    std::env::current_exe().ok().and_then(|p| {
+        p.parent()
+            .and_then(|p| p.parent())
+            .map(|p| p.join("services.db"))
+    })
 }
 
 /// Open (or create) the application database and run migrations.
-pub fn open_db() -> SqlResult<Connection> {
+pub fn open_db() -> Result<Connection, AppError> {
     let conn = match db_path() {
         Some(path) => Connection::open(&path)?,
         None => Connection::open_in_memory()?,
@@ -25,13 +27,13 @@ pub fn open_db() -> SqlResult<Connection> {
 }
 
 /// Create an in-memory database with migrations applied (used as a fallback).
-pub fn open_memory_db() -> SqlResult<Connection> {
+pub fn open_memory_db() -> Result<Connection, AppError> {
     let conn = Connection::open_in_memory()?;
     run_migrations(&conn)?;
     Ok(conn)
 }
 
-fn run_migrations(conn: &Connection) -> SqlResult<()> {
+fn run_migrations(conn: &Connection) -> Result<(), AppError> {
     conn.execute_batch(
         "
         CREATE TABLE IF NOT EXISTS service_info (
@@ -96,72 +98,88 @@ pub fn load_service_info(conn: &Connection, ttl_secs: u64) -> HashMap<String, Se
 }
 
 /// Persist a single service info entry, updating its timestamp.
-pub fn save_service_info(conn: &Connection, name: &str, info: &ServiceInfo) {
-    if let Err(e) = conn.execute(
+pub fn save_service_info(
+    conn: &Connection,
+    name: &str,
+    info: &ServiceInfo,
+) -> Result<(), AppError> {
+    conn.execute(
         "INSERT OR REPLACE INTO service_info
              (name, description, explained, recommendation, updated_at)
          VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![name, info.description, info.explained, info.recommendation, now_secs()],
-    ) {
-        eprintln!("Failed to save service info for '{}': {}", name, e);
-    }
+        params![
+            name,
+            info.description,
+            info.explained,
+            info.recommendation,
+            now_secs()
+        ],
+    )
+    .map_err(AppError::from)?;
+    Ok(())
 }
 
 /// Persist all entries in the given map, updating each timestamp.
-pub fn save_all_service_info(conn: &Connection, services_info: &HashMap<String, ServiceInfo>) {
-    eprintln!("DEBUG: save_all_service_info called with {} entries", services_info.len());
-    let tx = conn.unchecked_transaction().unwrap();
+pub fn save_all_service_info(
+    conn: &Connection,
+    services_info: &HashMap<String, ServiceInfo>,
+) -> Result<(), AppError> {
+    eprintln!(
+        "DEBUG: save_all_service_info called with {} entries",
+        services_info.len()
+    );
+    let tx = conn.unchecked_transaction().map_err(AppError::from)?;
     let mut count = 0;
     for (name, info) in services_info {
         count += 1;
         if count % 50 == 0 {
             eprintln!("DEBUG: Saved {} service infos", count);
         }
-        save_service_info(&tx, name, info);
+        save_service_info(&tx, name, info)?;
     }
-    tx.commit().unwrap();
+    tx.commit().map_err(AppError::from)?;
     eprintln!("DEBUG: Finished saving all service infos");
+    Ok(())
 }
 
 /// Append a history entry to the database.
-pub fn append_history(conn: &Connection, entry: &HistoryEntry) {
-    let json = match serde_json::to_string(entry) {
-        Ok(j) => j,
-        Err(e) => {
-            eprintln!("Failed to serialize history entry: {}", e);
-            return;
-        }
-    };
-    if let Err(e) = conn.execute(
+pub fn append_history(conn: &Connection, entry: &HistoryEntry) -> Result<(), AppError> {
+    let json = serde_json::to_string(entry).map_err(|e| AppError::Io {
+        message: format!("Failed to serialize history entry: {}", e),
+    })?;
+    conn.execute(
         "INSERT INTO history (entry_json, timestamp) VALUES (?1, ?2)",
         params![json, entry.timestamp() as i64],
-    ) {
-        eprintln!("Failed to save history entry: {}", e);
-    }
+    )
+    .map_err(AppError::from)?;
+    Ok(())
 }
 
 /// Load the most recent `limit` history entries, newest first.
 pub fn load_history(conn: &Connection, limit: u32) -> Vec<HistoryEntry> {
-    let mut stmt = match conn.prepare(
-        "SELECT entry_json FROM history ORDER BY timestamp DESC LIMIT ?",
-    ) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("Failed to prepare history query: {}", e);
-            return vec![];
-        }
-    };
+    let mut stmt =
+        match conn.prepare("SELECT entry_json FROM history ORDER BY timestamp DESC LIMIT ?") {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("Failed to prepare history query: {}", e);
+                return vec![];
+            }
+        };
 
-    let json_vec: Vec<String> = match stmt.query_map(params![limit as i64], |row| row.get::<_, String>(0)) {
-        Ok(rows) => rows.flatten().collect(),
-        Err(_) => vec![],
-    };
-    json_vec.into_iter().filter_map(|json| serde_json::from_str(&json).ok()).collect()
+    let json_vec: Vec<String> =
+        match stmt.query_map(params![limit as i64], |row| row.get::<_, String>(0)) {
+            Ok(rows) => rows.flatten().collect(),
+            Err(_) => vec![],
+        };
+    json_vec
+        .into_iter()
+        .filter_map(|json| serde_json::from_str(&json).ok())
+        .collect()
 }
 
 /// Clear all history entries from the database.
-pub fn clear_history(conn: &Connection) {
-    if let Err(e) = conn.execute("DELETE FROM history", []) {
-        eprintln!("Failed to clear history: {}", e);
-    }
+pub fn clear_history(conn: &Connection) -> Result<(), AppError> {
+    conn.execute("DELETE FROM history", [])
+        .map_err(AppError::from)?;
+    Ok(())
 }

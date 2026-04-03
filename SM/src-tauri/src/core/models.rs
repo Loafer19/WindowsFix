@@ -4,7 +4,51 @@ use std::time::{Duration, SystemTime};
 
 use serde::{Deserialize, Serialize};
 
-use crate::history::HistoryEntry;
+use super::history::HistoryEntry;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", content = "message")]
+pub enum AppError {
+    WindowsApi { message: String },
+    Database { message: String },
+    Config { message: String },
+    Validation { message: String },
+    Io { message: String },
+    TaskPanic { message: String },
+    Unknown { message: String },
+}
+
+impl std::fmt::Display for AppError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AppError::WindowsApi { message } => write!(f, "Windows API error: {}", message),
+            AppError::Database { message } => write!(f, "Database error: {}", message),
+            AppError::Config { message } => write!(f, "Configuration error: {}", message),
+            AppError::Validation { message } => write!(f, "Validation error: {}", message),
+            AppError::Io { message } => write!(f, "I/O error: {}", message),
+            AppError::TaskPanic { message } => write!(f, "Task panic: {}", message),
+            AppError::Unknown { message } => write!(f, "Unknown error: {}", message),
+        }
+    }
+}
+
+impl std::error::Error for AppError {}
+
+impl From<std::io::Error> for AppError {
+    fn from(err: std::io::Error) -> Self {
+        AppError::Io {
+            message: err.to_string(),
+        }
+    }
+}
+
+impl From<rusqlite::Error> for AppError {
+    fn from(err: rusqlite::Error) -> Self {
+        AppError::Database {
+            message: err.to_string(),
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WindowsService {
