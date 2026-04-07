@@ -14,15 +14,14 @@
                         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                             <div v-for="(count, type) in appsByLocation" :key="type" class="bg-base-100 rounded-lg p-4">
                                 <div class="flex items-center gap-2 capitalize font-medium">
-                                    {{ formatLocation(type) }}
+                                    {{ getLocationInfo(type).label }}
                                 </div>
-                                <div class="text-xl" :class="`text-${getLocationColor(type)}`">{{ count.length }}</div>
+                                <div class="text-xl" :class="`text-${getLocationInfo(type).color}`">{{ count.length }}</div>
                                 <div class="text-base-content/70">
-                                    {{ stats.total > 0 ? ((count.length / stats.total) * 100).toFixed(1) : 0 }}% of
-                                    total
+                                    {{ calcPercentage(count.length, stats.total) }}% of total
                                 </div>
-                                <progress class="progress h-2 mt-2" :class="`progress-${getLocationColor(type)}`"
-                                    :value="stats.total > 0 ? ((count.length / stats.total) * 100) : 0"
+                                <progress class="progress h-2 mt-2" :class="`progress-${getLocationInfo(type).color}`"
+                                    :value="calcPercentage(count.length, stats.total)"
                                     max="100"></progress>
                             </div>
                         </div>
@@ -37,26 +36,24 @@
                                 <div class="flex items-center gap-2 capitalize font-medium">
                                     Enabled
                                 </div>
-                                <div class="text-2xl text-success">{{ stats.enabled }}</div>
+                                <div class="text-2xl text-warning">{{ stats.enabled }}</div>
                                 <div class="text-base-content/70">
-                                    {{ stats.total > 0 ? ((stats.enabled / stats.total) * 100).toFixed(1) : 0 }}% of
-                                    total
+                                    {{ calcPercentage(stats.enabled, stats.total) }}% of total
                                 </div>
-                                <progress class="progress h-2 mt-2 progress-success"
-                                    :value="stats.total > 0 ? ((stats.enabled / stats.total) * 100) : 0"
+                                <progress class="progress h-2 mt-2 progress-warning"
+                                    :value="calcPercentage(stats.enabled, stats.total)"
                                     max="100"></progress>
                             </div>
                             <div class="bg-base-100 rounded-lg p-4">
                                 <div class="flex items-center gap-2 capitalize font-medium">
                                     Disabled
                                 </div>
-                                <div class="text-2xl text-warning">{{ stats.disabled }}</div>
+                                <div class="text-2xl text-success">{{ stats.disabled }}</div>
                                 <div class="text-base-content/70">
-                                    {{ stats.total > 0 ? ((stats.disabled / stats.total) * 100).toFixed(1) : 0 }}% of
-                                    total
+                                    {{ calcPercentage(stats.disabled, stats.total) }}% of total
                                 </div>
-                                <progress class="progress h-2 mt-2 progress-warning"
-                                    :value="stats.total > 0 ? ((stats.disabled / stats.total) * 100) : 0"
+                                <progress class="progress h-2 mt-2 progress-success"
+                                    :value="calcPercentage(stats.disabled, stats.total)"
                                     max="100"></progress>
                             </div>
                         </div>
@@ -76,11 +73,10 @@
                                 <div class="capitalize font-medium">Showing</div>
                                 <div class="text-2xl text-primary">{{ filteredApps.length }}</div>
                                 <div class="text-base-content/70">
-                                    {{ stats.total > 0 ? ((filteredApps.length / stats.total) * 100).toFixed(1)
-                                        : 0 }}% of total
+                                    {{ calcPercentage(filteredApps.length, stats.total) }}% of total
                                 </div>
                                 <progress class="progress progress-primary mt-2"
-                                    :value="stats.total > 0 ? ((filteredApps.length / stats.total) * 100) : 0"
+                                    :value="calcPercentage(filteredApps.length, stats.total)"
                                     max="100"></progress>
                             </div>
                         </div>
@@ -170,38 +166,39 @@
                     </tr>
                 </thead>
                 <tbody>
-                    <tr v-for="app in filteredApps" :key="`${app.name}-${app.location}`">
+                    <tr v-for="appWithInfo in filteredApps.map(app => ({ app, info: getAppInfo(app) }))"
+                        :key="appWithInfo.info.rowKey">
                         <td class="font-medium">
-                            {{ app.name }}
+                            {{ appWithInfo.app.name }}
                         </td>
                         <td>
-                            <div class="badge text-nowrap" :class="`badge-${getLocationColor(app.location)}`">
-                                {{ formatLocation(app.location) }}
+                            <div class="badge text-nowrap" :class="`badge-${appWithInfo.info.locationColor}`">
+                                {{ appWithInfo.info.locationLabel }}
                             </div>
                         </td>
                         <td>
                             <code class="text-xs bg-base-200 p-1 rounded break-all">
-                                {{ app.path }}
+                                {{ appWithInfo.app.path }}
                             </code>
                         </td>
                         <td>
-                            <div :class="`badge ${app.enabled ? 'badge-warning' : 'badge-success'}`">
-                                {{ app.enabled ? 'Enabled' : 'Disabled' }}
+                            <div :class="`badge ${appWithInfo.info.statusClass}`">
+                                {{ appWithInfo.info.statusLabel }}
                             </div>
                         </td>
                         <td>
                             <div class="flex gap-2">
                                 <Button class="btn btn-sm btn-square tooltip"
-                                    :class="app.enabled ? 'btn-success' : 'btn-warning'" @clicked="handleToggle(app)"
-                                    :is-loading="togglingApp === `${app.name}-${app.location}`"
-                                    :data-tip="app.enabled ? 'Disable' : 'Enable'">
-                                    <Icon :name="app.enabled ? 'shutDown' : 'checkBoxCircle'" />
+                                    :class="appWithInfo.info.btnClass" @clicked="handleToggle(appWithInfo.app)"
+                                    :is-loading="togglingApp === appWithInfo.info.rowKey"
+                                    :data-tip="appWithInfo.info.btnTip">
+                                    <Icon :name="appWithInfo.info.btnIcon" />
                                 </Button>
-                                <Button class="btn btn-info btn-sm btn-square" @clicked="editApp(app)">
+                                <Button class="btn btn-info btn-sm btn-square" @clicked="editApp(appWithInfo.app)">
                                     <Icon name="edit" />
                                 </Button>
-                                <Button class="btn btn-warning btn-sm btn-square" @clicked="confirmRemove(app)"
-                                    :is-loading="removingApp === `${app.name}-${app.location}`">
+                                <Button class="btn btn-warning btn-sm btn-square" @clicked="confirmRemove(appWithInfo.app)"
+                                    :is-loading="removingApp === appWithInfo.info.rowKey">
                                     <Icon name="deleteBin" />
                                 </Button>
                             </div>
@@ -226,7 +223,7 @@ import Button from '../Button.vue'
 import Icon from '../Icon.vue'
 import StartupAppModal from '../Modals/StartupAppModal.vue'
 import ConfirmModal from '../Modals/ConfirmModal.vue'
-import { getLocationColor, formatLocation } from '../../services/helpers.js'
+import { getLocationInfo, calcPercentage } from '../../services/helpers.js'
 
 const {
     filteredApps,
@@ -252,9 +249,23 @@ const removingApp = ref(null)
 const togglingApp = ref(null)
 const editingApp = ref(null)
 
+const getAppInfo = (app) => {
+    const locInfo = getLocationInfo(app.location)
+    return {
+        locationColor: locInfo.color,
+        locationLabel: locInfo.label,
+        statusClass: app.enabled ? 'badge-warning' : 'badge-success',
+        statusLabel: app.enabled ? 'Enabled' : 'Disabled',
+        btnClass: app.enabled ? 'btn-success' : 'btn-warning',
+        btnTip: app.enabled ? 'Disable' : 'Enable',
+        btnIcon: app.enabled ? 'shutDown' : 'checkBoxCircle',
+        rowKey: app.id || `${app.name}-${app.location}`
+    }
+}
+
 const handleToggle = async (app) => {
     try {
-        togglingApp.value = `${app.name}-${app.location}`
+        togglingApp.value = app.id || `${app.name}-${app.location}`
         await toggleApp(app)
     } catch (err) {
         console.error('Failed to toggle app:', err)
@@ -277,7 +288,7 @@ const handleRemoveApp = async () => {
     if (!removeAppConfirm.value) return
 
     try {
-        removingApp.value = `${removeAppConfirm.value.name}-${removeAppConfirm.value.location}`
+        removingApp.value = removeAppConfirm.value.id || `${removeAppConfirm.value.name}-${removeAppConfirm.value.location}`
         await removeApp(removeAppConfirm.value)
         showConfirmRemove.value = false
     } catch (err) {
@@ -311,11 +322,7 @@ const refresh = async () => {
     await loadStartupApps()
 }
 
-// Load startup apps on mount
 onMounted(() => {
-    // Delay loading to allow UI to render first
-    setTimeout(async () => {
-        await loadStartupApps()
-    }, 100)
+    loadStartupApps()
 })
 </script>

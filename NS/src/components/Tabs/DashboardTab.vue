@@ -1,10 +1,10 @@
 <template>
     <div>
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-            <StatCard icon="arrowDownCircle" label="24h Download" :value="formatBytes(totals.downloadBytes)" color="primary" size="lg" />
-            <StatCard icon="arrowUpCircle" label="24h Upload" :value="formatBytes(totals.uploadBytes)" color="info" size="lg" />
-            <StatCard icon="arrowDownCircle" label="Download" :value="formatSpeed(currentDownload)" color="primary" size="lg" />
-            <StatCard icon="arrowUpCircle" label="Upload" :value="formatSpeed(currentUpload)" color="info" size="lg" />
+            <StatCard icon="arrowDownCircle" label="24h Download" :value="calcBytes(totals.downloadBytes)" color="primary" size="lg" />
+            <StatCard icon="arrowUpCircle" label="24h Upload" :value="calcBytes(totals.uploadBytes)" color="info" size="lg" />
+            <StatCard icon="arrowDownCircle" label="Download" :value="calcSpeed(currentDownload)" color="primary" size="lg" />
+            <StatCard icon="arrowUpCircle" label="Upload" :value="calcSpeed(currentUpload)" color="info" size="lg" />
         </div>
 
         <div class="bg-base-200 rounded-lg p-4">
@@ -27,7 +27,7 @@ import {
 } from 'chart.js'
 import { computed } from 'vue'
 import { Line } from 'vue-chartjs'
-import { formatBytes, formatSpeed } from '../../composables/useNetwork.js'
+import { calcBytes, calcSpeed } from '../../services/helpers.js'
 import StatCard from '../StatCard.vue'
 
 ChartJS.register(
@@ -95,7 +95,7 @@ const chartOptions = {
             callbacks: {
                 label: (ctx) => {
                     const bps = ctx.raw ?? 0
-                    return `${ctx.dataset.label}: ${formatSpeed(bps)}`
+                    return `${ctx.dataset.label}: ${calcSpeed(bps)}`
                 },
             },
         },
@@ -109,7 +109,7 @@ const chartOptions = {
             min: 0,
             ticks: {
                 color: CHART_TEXT_COLOR,
-                callback: (v) => formatSpeed(v),
+                callback: (v) => calcSpeed(v),
             },
             grid: { color: CHART_GRID_COLOR },
         },

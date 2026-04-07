@@ -4,53 +4,40 @@
 
             <div role="tablist" class="tabs tabs-boxed gap-2 p-0 mb-6">
                 <label class="tab gap-1 text-lg font-medium hover:text-info" v-for="tab in tabs" :key="tab.id">
-                    <input v-model="activeTab" type="radio" name="tabs_main" class="tab" :value="tab.component" />
+                    <input v-model="activeTab" type="radio" name="tabs_main" class="tab" :value="tab.id" />
                     <Icon :name="tab.icon" />
                     {{ tab.name }}
                 </label>
             </div>
 
-            <component :is="activeTab" />
+            <KeepAlive>
+                <component :is="currentComponent" />
+            </KeepAlive>
         </div>
     </div>
 </template>
 
 <script setup>
-import { markRaw, ref, defineAsyncComponent } from 'vue'
+import { markRaw, ref, computed, defineAsyncComponent } from 'vue'
 
 const FiltersTab = defineAsyncComponent(() => import('./components/Tabs/FiltersTab.vue'))
 const HistoryTab = defineAsyncComponent(() => import('./components/Tabs/HistoryTab.vue'))
 const PresetsTab = defineAsyncComponent(() => import('./components/Tabs/PresetsTab.vue'))
 const StartupTab = defineAsyncComponent(() => import('./components/Tabs/StartupTab.vue'))
 
-const tabs = ref([
-    {
-        id: 'filters',
-        name: 'Services',
-        component: markRaw(FiltersTab),
-        icon: 'equalizer',
-    },
-    {
-        id: 'presets',
-        name: 'Presets',
-        component: markRaw(PresetsTab),
-        icon: 'flashlight',
-    },
-    {
-        id: 'startup',
-        name: 'Startup Apps',
-        component: markRaw(StartupTab),
-        icon: 'spaceShip2',
-    },
-    {
-        id: 'history',
-        name: 'History',
-        component: markRaw(HistoryTab),
-        icon: 'history',
-    },
-])
+const tabs = [
+    { id: 'filters', name: 'Services', component: markRaw(FiltersTab), icon: 'equalizer' },
+    { id: 'presets', name: 'Presets', component: markRaw(PresetsTab), icon: 'flashlight' },
+    { id: 'startup', name: 'Startup Apps', component: markRaw(StartupTab), icon: 'spaceShip2' },
+    { id: 'history', name: 'History', component: markRaw(HistoryTab), icon: 'history' },
+]
 
-const activeTab = ref(markRaw(FiltersTab))
+const activeTab = ref('filters')
+
+const currentComponent = computed(() => {
+    const tab = tabs.find(t => t.id === activeTab.value)
+    return tab?.component
+})
 
 </script>
 

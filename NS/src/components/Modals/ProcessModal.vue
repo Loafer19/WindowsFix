@@ -16,10 +16,10 @@
             </div>
 
             <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
-                <StatCard icon="arrowDownCircle" label="Download" :value="formatSpeed(proc.downloadBps)" color="primary" size="base" />
-                <StatCard icon="arrowUpCircle" label="Upload" :value="formatSpeed(proc.uploadBps)" color="info" size="base" />
-                <StatCard icon="arrowDownCircle" label="Total DL" :value="formatBytes(proc.totalDownloadBytes)" color="primary" size="base" />
-                <StatCard icon="arrowUpCircle" label="Total UL" :value="formatBytes(proc.totalUploadBytes)" color="info" size="base" />
+                <StatCard icon="arrowDownCircle" label="Download" :value="calcSpeed(proc.downloadBps)" color="primary" size="base" />
+                <StatCard icon="arrowUpCircle" label="Upload" :value="calcSpeed(proc.uploadBps)" color="info" size="base" />
+                <StatCard icon="arrowDownCircle" label="Total DL" :value="calcBytes(proc.totalDownloadBytes)" color="primary" size="base" />
+                <StatCard icon="arrowUpCircle" label="Total UL" :value="calcBytes(proc.totalUploadBytes)" color="info" size="base" />
             </div>
 
             <div class="bg-base-200 rounded-lg p-4 mb-4">
@@ -27,7 +27,7 @@
                     <div class="text-sm font-semibold text-base-content/70">{{ periodLabel }}</div>
                     <div class="flex gap-1">
                         <button
-                            v-for="p in periods"
+                            v-for="p in PERIODS"
                             :key="p.key"
                             class="btn btn-xs"
                             :class="{ 'btn-primary': selectedPeriod === p.key, 'btn-ghost': selectedPeriod !== p.key }"
@@ -58,7 +58,7 @@
                     <span class="text-xs text-base-content/50">KB/s</span>
                 </div>
                 <span v-if="proc.limitBps" class="badge badge-warning font-mono text-xs">
-                    Limited to {{ formatSpeed(proc.limitBps) }}
+                    Limited to {{ calcSpeed(proc.limitBps) }}
                 </span>
                 <span v-if="proc.blocked" class="badge badge-error text-xs">Blocked</span>
             </div>
@@ -78,7 +78,7 @@ import {
 } from 'chart.js'
 import { computed, onMounted, ref } from 'vue'
 import { Bar } from 'vue-chartjs'
-import { formatBytes, formatSpeed } from '../../composables/useNetwork.js'
+import { calcBytes, calcSpeed } from '../../services/helpers.js'
 import { rustService } from '../../services/rust.js'
 import Button from '../Button.vue'
 import Icon from '../Icon.vue'
@@ -95,11 +95,11 @@ const emit = defineEmits(['close', 'throttle'])
 const history = ref([])
 const selectedPeriod = ref('24h')
 
-const periods = [
+const PERIODS = Object.freeze([
     { key: '24h', label: '24h' },
     { key: '7d', label: '7d' },
     { key: '30d', label: '30d' },
-]
+])
 
 const periodLabel = computed(() => {
     switch (selectedPeriod.value) {
@@ -114,7 +114,7 @@ const periodLabel = computed(() => {
     }
 })
 
-async function loadHistory() {
+const loadHistory = async () => {
     try {
         const result = await rustService.getProcessHistory(
             props.proc.exePath,
@@ -128,20 +128,7 @@ async function loadHistory() {
 
 onMounted(loadHistory)
 
-const MONTHS = [
-    'Jan',
-    'Feb',
-    'Mar',
-    'Apr',
-    'May',
-    'Jun',
-    'Jul',
-    'Aug',
-    'Sep',
-    'Oct',
-    'Nov',
-    'Dec',
-]
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
 const hourLabels = computed(() => {
     const n = history.value.length
@@ -200,9 +187,7 @@ const chartOptions = computed(() => ({
         title: { display: false },
         tooltip: {
             callbacks: {
-                label: (ctx) => {
-                    return `${ctx.dataset.label}: ${formatBytes(ctx.raw ?? 0)}`
-                },
+                label: (ctx) => `${ctx.dataset.label}: ${calcBytes(ctx.raw ?? 0)}`,
             },
         },
     },
@@ -218,14 +203,14 @@ const chartOptions = computed(() => ({
             min: 0,
             ticks: {
                 color: CHART_TEXT_COLOR,
-                callback: (v) => formatBytes(v),
+                callback: (v) => calcBytes(v),
             },
             grid: { color: CHART_GRID_COLOR },
         },
     },
 }))
 
-function onThrottleChange(event) {
+const onThrottleChange = (event) => {
     const kb = Number(event.target.value)
     const bps = kb > 0 ? kb * 1024 : 0
     emit('throttle', { proc: props.proc, bps })

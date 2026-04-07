@@ -5,6 +5,7 @@ import {
     removeStartupApp,
     toggleStartupApp,
 } from '../services/api.js'
+import { STARTUP_LOCATIONS } from '../services/helpers.js'
 
 export function useStartupApps() {
     const allStartupApps = ref([])
@@ -15,16 +16,7 @@ export function useStartupApps() {
     const selectedLocation = ref('')
     const selectedStatus = ref('')
 
-    const locationOptions = [
-        { value: 'hkeyLocalMachine', label: 'HKLM Registry (System)' },
-        { value: 'hkeyCurrentUser', label: 'HKCU Registry (User)' },
-        { value: 'startupFolder', label: 'Startup Folder' },
-    ]
-
-    const statusOptions = [
-        { value: true, label: 'Enabled' },
-        { value: false, label: 'Disabled' },
-    ]
+    const locationOptions = STARTUP_LOCATIONS
 
     const filteredApps = computed(() => {
         return allStartupApps.value.filter(app => {
@@ -61,10 +53,10 @@ export function useStartupApps() {
         enabled: allStartupApps.value.filter(a => a.enabled).length,
         disabled: allStartupApps.value.filter(a => !a.enabled).length,
         fromRegistry: allStartupApps.value.filter(a =>
-            a.location === 'HkeyLocalMachine' || a.location === 'HkeyCurrentUser'
+            a.location === 'hkeyLocalMachine' || a.location === 'hkeyCurrentUser'
         ).length,
         fromFolder: allStartupApps.value.filter(a =>
-            a.location === 'StartupFolder'
+            a.location === 'startupFolder'
         ).length,
     }))
 
@@ -138,7 +130,6 @@ export function useStartupApps() {
         selectedStatus,
         stats,
         locationOptions,
-        statusOptions,
         loadStartupApps,
         addApp,
         removeApp,

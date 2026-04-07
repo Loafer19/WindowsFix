@@ -87,8 +87,6 @@ const {
 } = usePresets(allServices)
 
 onMounted(() => {
-    setTimeout(async () => {
-        await loadServicesData()
-    }, 100)
+    loadServicesData()
 })
 </script>

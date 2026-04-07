@@ -13,15 +13,10 @@ import { computed } from 'vue'
 import Icon from './Icon.vue'
 
 const props = defineProps({
-    /** Remix icon name to display. */
     icon: { type: String, required: true },
-    /** Label text shown above the value. */
     label: { type: String, required: true },
-    /** Formatted value string (e.g. "1.5 MB/s"). */
     value: { type: String, required: true },
-    /** DaisyUI colour token: 'primary' | 'info' | 'success' | 'warning' | 'error'. */
     color: { type: String, default: 'primary' },
-    /** Tailwind text-size suffix: 'sm' | 'base' | 'lg' | 'xl' | '2xl'. */
     size: { type: String, default: '2xl' },
 })
 

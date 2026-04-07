@@ -231,7 +231,7 @@
 
 <script setup>
 import { getVersion } from '@tauri-apps/api/app'
-import { computed, onMounted, reactive, ref } from 'vue'
+import { onMounted, reactive, ref } from 'vue'
 import { useToast } from '../../composables/useToast.js'
 import { rustService } from '../../services/rust.js'
 import Button from '../Button.vue'
@@ -275,9 +275,7 @@ const windivertStatus = reactive({
 
 const savingSettings = ref(false)
 const installingWindivert = ref(false)
-
 const limitIndex = ref(0)
-const limitLabel = computed(() => LIMIT_PRESETS[limitIndex.value].label)
 
 const appVersion = ref('')
 const checkingUpdates = ref(false)

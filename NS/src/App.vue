@@ -4,7 +4,7 @@
 
             <div role="tablist" class="tabs tabs-boxed gap-2 p-0 mb-6">
                 <label v-for="tab in tabs" :key="tab.id" class="tab gap-1 text-lg font-medium hover:text-info">
-                    <input v-model="activeTab" type="radio" name="tabs_main" class="tab" :value="tab.component" />
+                    <input v-model="activeTab" type="radio" name="tabs_main" class="tab" :value="tab.id" />
                     <Icon :name="tab.icon" />
                     {{ tab.name }}
                 </label>
@@ -29,9 +29,19 @@
 
             <div class="card bg-base-100 card-border border-base-300">
                 <div class="card-body">
-                    <component :is="activeTab" :download-history="downloadHistory" :upload-history="uploadHistory"
-                        :labels="labels" :processes="processes" :totals="totals24h" @block-toggle="onBlockToggle"
-                        @throttle="onThrottle" @terminate="onTerminate" />
+                    <KeepAlive>
+                        <component
+                            :is="currentComponent"
+                            :download-history="downloadHistory"
+                            :upload-history="uploadHistory"
+                            :labels="labels"
+                            :processes="processes"
+                            :totals="totals24h"
+                            @block-toggle="onBlockToggle"
+                            @throttle="onThrottle"
+                            @terminate="onTerminate"
+                        />
+                    </KeepAlive>
                 </div>
             </div>
 
@@ -41,7 +51,7 @@
 
 <script setup>
 import { getCurrentWindow } from '@tauri-apps/api/window'
-import { markRaw, onMounted, onUnmounted, ref } from 'vue'
+import { markRaw, onMounted, onUnmounted, ref, computed } from 'vue'
 import Button from './components/Button.vue'
 import Icon from './components/Icon.vue'
 import ConfigsTab from './components/Tabs/ConfigsTab.vue'
@@ -52,28 +62,19 @@ import { useProcessManagement } from './composables/useProcessManagement.js'
 import { useToast } from './composables/useToast.js'
 import { rustService } from './services/rust.js'
 
-const tabs = ref([
-    {
-        id: 'dashboard',
-        name: 'Dashboard',
-        component: markRaw(DashboardTab),
-        icon: 'dashboard2',
-    },
-    {
-        id: 'processes',
-        name: 'Processes',
-        component: markRaw(ProcessesTab),
-        icon: 'listView',
-    },
-    {
-        id: 'configs',
-        name: 'Configs',
-        component: markRaw(ConfigsTab),
-        icon: 'settings4',
-    },
-])
+const tabs = [
+    { id: 'dashboard', name: 'Dashboard', component: markRaw(DashboardTab), icon: 'dashboard2' },
+    { id: 'processes', name: 'Processes', component: markRaw(ProcessesTab), icon: 'listView' },
+    { id: 'configs', name: 'Configs', component: markRaw(ConfigsTab), icon: 'settings4' },
+]
 
-const activeTab = ref(markRaw(DashboardTab))
+const activeTab = ref('dashboard')
+
+const currentComponent = computed(() => {
+    const tab = tabs.find(t => t.id === activeTab.value)
+    return tab?.component
+})
+
 const captureError = ref(false)
 const totals24h = ref({ downloadBytes: 0, uploadBytes: 0 })
 

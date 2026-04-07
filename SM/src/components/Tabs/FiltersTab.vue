@@ -19,11 +19,10 @@
                                 </div>
                                 <div class="text-xl" :class="`text-${getStartupTypeColor(type)}`">{{ count }}</div>
                                 <div class="text-base-content/70">
-                                    {{ totalServices > 0 ? ((count / totalServices) * 100).toFixed(1) : 0 }}% of
-                                    total
+                                    {{ calcPercentage(count, totalServices) }}% of total
                                 </div>
                                 <progress class="progress h-2 mt-2" :class="`progress-${getStartupTypeColor(type)}`"
-                                    :value="totalServices > 0 ? ((count / totalServices) * 100) : 0"
+                                    :value="calcPercentage(count, totalServices)"
                                     max="100"></progress>
                             </div>
                         </div>
@@ -41,10 +40,10 @@
                                 </div>
                                 <div class="text-2xl" :class="`text-${getStatusColor(status)}`">{{ count }}</div>
                                 <div class="text-base-content/70">
-                                    {{ totalServices > 0 ? ((count / totalServices) * 100).toFixed(1) : 0 }}% of total
+                                    {{ calcPercentage(count, totalServices) }}% of total
                                 </div>
                                 <progress class="progress h-2 mt-2" :class="`progress-${getStatusColor(status)}`"
-                                    :value="totalServices > 0 ? ((count / totalServices) * 100) : 0"
+                                    :value="calcPercentage(count, totalServices)"
                                     max="100"></progress>
                             </div>
                         </div>
@@ -64,11 +63,10 @@
                                 <div class="capitalize font-medium">Showing</div>
                                 <div class="text-2xl text-primary">{{ filteredServices.length }}</div>
                                 <div class="text-base-content/70">
-                                    {{ totalServices > 0 ? ((filteredServices.length / totalServices) * 100).toFixed(1)
-                                        : 0 }}% of total
+                                    {{ calcPercentage(filteredServices.length, totalServices) }}% of total
                                 </div>
                                 <progress class="progress progress-primary mt-2"
-                                    :value="totalServices > 0 ? ((filteredServices.length / totalServices) * 100) : 0"
+                                    :value="calcPercentage(filteredServices.length, totalServices)"
                                     max="100"></progress>
                             </div>
                         </div>
@@ -162,36 +160,38 @@
                 </thead>
                 <tbody>
                     <template v-for="service in filteredServices" :key="service.name">
-                        <tr>
-                            <td class="font-medium text-base-content">
-                                <span class="tooltip tooltip-right" :data-tip="service.displayName">{{
-                                    service.name }}</span>
-                            </td>
-                            <td>
-                                <div :class="`badge-${getStatusColor(service.status)}`" class="badge">
-                                    {{ service.status }}
-                                </div>
-                            </td>
-                            <td>
-                                <div :class="`badge-${getStartupTypeColor(service.startupType)}`" class="badge">
-                                    {{ service.startupType }}
-                                </div>
-                            </td>
-                            <td>
-                                <div class="flex items-center space-x-2">
-                                    <Button class="btn btn-info btn-sm btn-square"
-                                        @clicked="openModalForDetails(service)">
-                                        <Icon name="eye" />
-                                    </Button>
+                        <template v-for="serviceInfo in [getServiceInfo(service)]" :key="`${service.name}-info`">
+                            <tr>
+                                <td class="font-medium text-base-content">
+                                    <span class="tooltip tooltip-right" :data-tip="service.displayName">{{
+                                        service.name }}</span>
+                                </td>
+                                <td>
+                                    <div :class="serviceInfo.statusClass" class="badge">
+                                        {{ service.status }}
+                                    </div>
+                                </td>
+                                <td>
+                                    <div :class="serviceInfo.startupTypeClass" class="badge">
+                                        {{ service.startupType }}
+                                    </div>
+                                </td>
+                                <td>
+                                    <div class="flex items-center space-x-2">
+                                        <Button class="btn btn-info btn-sm btn-square"
+                                            @clicked="openModalForDetails(service)">
+                                            <Icon name="eye" />
+                                        </Button>
 
-                                    <Button v-if="service.startupType != 'Disabled'" :disabled="service.isDisabling"
-                                        :is-loading="service.isDisabling" class="btn btn-success btn-sm btn-square"
-                                        @clicked="openModal(service)">
-                                        <Icon name="shutDown" />
-                                    </Button>
-                                </div>
-                            </td>
-                        </tr>
+                                        <Button v-if="!serviceInfo.isDisabled" :disabled="service.isDisabling"
+                                            :is-loading="service.isDisabling" class="btn btn-success btn-sm btn-square"
+                                            @clicked="openModal(service)">
+                                            <Icon name="shutDown" />
+                                        </Button>
+                                    </div>
+                                </td>
+                            </tr>
+                        </template>
                     </template>
                 </tbody>
             </table>
@@ -211,16 +211,18 @@ import Button from '../Button.vue'
 import Icon from '../Icon.vue'
 import ConfirmDisableModal from '../Modals/ConfirmDisableModal.vue'
 import ServiceDetailsModal from '../Modals/ServiceDetailsModal.vue'
-
 import { useServices } from '../../composables/useServices.js'
-import { getStartupTypeColor, getStatusColor } from '../../services/helpers.js'
+import { getStartupTypeColor, getStatusColor, calcPercentage } from '../../services/helpers.js'
 
 const { loading, error, reloadInfo, handleServiceAction, totalServices, servicesByStatus, servicesByStartupType, filteredServices, searchQuery, selectedStatus, selectedStartupType, clearFilters, loadServicesData, refresh, showModal, selectedService, showDetailsModal, selectedServiceForDetails, openModal, confirmDisable, openModalForDetails } = useServices()
 
+const getServiceInfo = (service) => ({
+    statusClass: `badge-${getStatusColor(service.status)}`,
+    startupTypeClass: `badge-${getStartupTypeColor(service.startupType)}`,
+    isDisabled: service.startupType === 'Disabled'
+})
+
 onMounted(() => {
-    // Delay loading to allow UI to render first
-    setTimeout(async () => {
-        await loadServicesData()
-    }, 100)
+    loadServicesData()
 })
 </script>

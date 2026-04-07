@@ -47,33 +47,33 @@
                 </thead>
                 <tbody>
                     <tr
-                        v-for="proc in sorted"
+                        v-for="{ proc, procInfo } in sortedFiltered.map(proc => ({ proc, procInfo: getProcInfo(proc) }))"
                         :key="proc.exePath"
                         class="cursor-pointer hover"
-                        :class="{ 'opacity-50': proc.blocked }"
+                        :class="procInfo.rowClass"
                         @click.stop="openModal(proc)"
                     >
                         <td>
                             <div class="flex flex-col">
-                                <span class="font-medium" :class="proc.blocked ? 'line-through text-error' : ''">{{ proc.name }}</span>
+                                <span class="font-medium" :class="procInfo.nameClass">{{ proc.name }}</span>
                             </div>
                         </td>
                         <td>
-                            <span v-if="proc.limitBps" class="tooltip inline-block w-2 h-2 bg-error rounded-full me-1" :data-tip="`Throttled to ${formatSpeed(proc.limitBps)}`"></span>
-                            <span class="badge badge-primary font-mono whitespace-nowrap">{{ formatSpeed(proc.downloadBps) }}</span>
+                            <span v-if="procInfo.isThrottled" class="tooltip inline-block w-2 h-2 bg-error rounded-full me-1" :data-tip="procInfo.throttleTip"></span>
+                            <span class="badge badge-primary font-mono whitespace-nowrap">{{ calcSpeed(proc.downloadBps) }}</span>
                         </td>
                         <td>
-                            <span v-if="proc.limitBps" class="tooltip inline-block w-2 h-2 bg-error rounded-full me-1" :data-tip="`Throttled to ${formatSpeed(proc.limitBps)}`"></span>
-                            <span class="badge badge-info font-mono whitespace-nowrap">{{ formatSpeed(proc.uploadBps) }}</span>
+                            <span v-if="procInfo.isThrottled" class="tooltip inline-block w-2 h-2 bg-error rounded-full me-1" :data-tip="procInfo.throttleTip"></span>
+                            <span class="badge badge-info font-mono whitespace-nowrap">{{ calcSpeed(proc.uploadBps) }}</span>
                         </td>
-                        <td><span class="badge badge-primary font-mono whitespace-nowrap">{{ formatBytes(proc.totalDownloadBytes) }}</span></td>
-                        <td><span class="badge badge-info font-mono whitespace-nowrap">{{ formatBytes(proc.totalUploadBytes) }}</span></td>
+                        <td><span class="badge badge-primary font-mono whitespace-nowrap">{{ calcBytes(proc.totalDownloadBytes) }}</span></td>
+                        <td><span class="badge badge-info font-mono whitespace-nowrap">{{ calcBytes(proc.totalUploadBytes) }}</span></td>
                         <td @click.stop>
                             <div class="flex items-center gap-1">
-                                <div class="tooltip" :data-tip="proc.blocked ? 'Unblock' : 'Block traffic'">
-                                    <Button :class="proc.blocked ? 'btn btn-success btn-sm btn-square' : 'btn btn-warning btn-sm btn-square'"
+                                <div class="tooltip" :data-tip="procInfo.btnTip">
+                                    <Button :class="procInfo.btnClass"
                                         :is-loading="proc.isPending" :disabled="proc.isPending" @clicked="emit('block-toggle', proc)">
-                                        <Icon :name="proc.blocked ? 'errorWarning' : 'forbid'" />
+                                        <Icon :name="procInfo.icon" />
                                     </Button>
                                 </div>
                                 <div v-if="proc.pid" class="tooltip tooltip-left" data-tip="Terminate process">
@@ -100,7 +100,7 @@
 
 <script setup>
 import { computed, ref } from 'vue'
-import { formatBytes, formatSpeed } from '../../composables/useNetwork.js'
+import { calcSpeed, calcBytes, getBlockStatusInfo, sortIcon as getSortIcon } from '../../services/helpers.js'
 import Button from '../Button.vue'
 import Icon from '../Icon.vue'
 import ProcessModal from '../Modals/ProcessModal.vue'
@@ -127,7 +127,7 @@ const filtered = computed(() => {
     )
 })
 
-const sorted = computed(() => {
+const sortedFiltered = computed(() => {
     const list = [...filtered.value]
     const field = sortField.value
     const dir = sortDir.value === 'asc' ? 1 : -1
@@ -140,7 +140,7 @@ const sorted = computed(() => {
     return list
 })
 
-function setSort(field) {
+const setSort = (field) => {
     if (sortField.value === field) {
         sortDir.value = sortDir.value === 'asc' ? 'desc' : 'asc'
     } else {
@@ -149,12 +149,19 @@ function setSort(field) {
     }
 }
 
-function sortIcon(field) {
-    if (sortField.value !== field) return 'arrowUpDown'
-    return sortDir.value === 'asc' ? 'sortAsc' : 'sortDesc'
+const sortIcon = (field) => getSortIcon(field, sortField.value, sortDir.value)
+
+const getProcInfo = (proc) => {
+    const info = getBlockStatusInfo(proc)
+    const isThrottled = !!proc.limitBps
+    return {
+        ...info,
+        isThrottled,
+        throttleTip: isThrottled ? `Throttled to ${calcSpeed(proc.limitBps)}` : '',
+    }
 }
 
-function openModal(proc) {
+const openModal = (proc) => {
     modalProc.value = proc
 }
 </script>

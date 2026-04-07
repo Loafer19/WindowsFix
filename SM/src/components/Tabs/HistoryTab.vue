@@ -13,11 +13,10 @@
                                 <div class="capitalize font-medium">Showing</div>
                                 <div class="text-2xl text-primary">{{ history.length }}</div>
                                 <div class="text-base-content/70">
-                                    {{ allHistory.length > 0 ? ((history.length / allHistory.length) * 100).toFixed(1)
-                                        : 0 }}% of total
+                                    {{ calcPercentage(history.length, allHistory.length) }}% of total
                                 </div>
                                 <progress class="progress progress-primary mt-2"
-                                    :value="allHistory.length > 0 ? ((history.length / allHistory.length) * 100) : 0"
+                                    :value="calcPercentage(history.length, allHistory.length)"
                                     max="100"></progress>
                             </div>
                         </div>
@@ -150,7 +149,7 @@ import { useHistory } from '../../composables/useHistory.js'
 import Button from '../Button.vue'
 import Icon from '../Icon.vue'
 import ConfirmModal from '../Modals/ConfirmModal.vue'
-import { getStatusColor, getStartupTypeColor, formatTime, getActionColor } from '../../services/helpers.js'
+import { getStatusColor, getStartupTypeColor, formatTime, getActionColor, calcPercentage } from '../../services/helpers.js'
 
 const {
     history,
@@ -163,9 +162,7 @@ const {
 } = useHistory()
 
 onMounted(() => {
-    setTimeout(async () => {
-        await loadHistory()
-    }, 100)
+    loadHistory()
 })
 
 const showConfirmClear = ref(false)
