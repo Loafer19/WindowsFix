@@ -15,7 +15,7 @@ jobs:
       ns_version: ${{ steps.check.outputs.ns_version }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 2
       - name: Check version change
@@ -53,7 +53,7 @@ jobs:
             fi
           fi
 
-          echo "changed=$version_changed" >> $GITHUB_OUTPUT
+          echo "changed=true" >> $GITHUB_OUTPUT
           echo "mv_version=$mv_version" >> $GITHUB_OUTPUT
           echo "sm_version=$sm_version" >> $GITHUB_OUTPUT
           echo "ns_version=$ns_version" >> $GITHUB_OUTPUT
@@ -69,7 +69,7 @@ jobs:
     runs-on: ${{ matrix.platform }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -189,7 +189,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
