@@ -1,7 +1,6 @@
 {
     "$schema": "https://schema.tauri.app/config/2",
     "productName": "Services Manager",
-    "version": "0.6.0",
     "identifier": "com.servicesmanager",
     "build": {
         "beforeDevCommand": "bun run dev",
@@ -30,6 +29,18 @@
         "copyright": "Popelyshyn",
         "shortDescription": "Services Manager",
         "longDescription": "A desktop application for managing Windows services",
-        "icon": ["icons/icon.ico"]
+        "icon": ["icons/icon.ico"],
+        "createUpdaterArtifacts": true
+    },
+    "plugins": {
+        "updater": {
+            "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDJCNTlCMDVERkIxOTA2RDMKUldUVEJobjdYYkJaSzlNdmtrTkNCcXFFTVdxYVN4dGM0OVJibU9VTi90YklpRXN4M1U4WXRKTjkK",
+            "endpoints": [
+                "https://github.com/Loafer19/WindowsFix/releases/latest/download/sm-latest.json"
+            ],
+            "windows": {
+                "installMode": "passive"
+            }
+        }
     }
 }

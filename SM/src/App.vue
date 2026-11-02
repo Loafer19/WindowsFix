@@ -8,17 +8,23 @@
                     <Icon :name="tab.icon" />
                     {{ tab.name }}
                 </label>
+                <UpdateControl />
             </div>
 
             <KeepAlive>
                 <component :is="currentComponent" />
             </KeepAlive>
+
+            <UpdateModal />
         </div>
     </div>
 </template>
 
 <script setup>
-import { markRaw, computed, defineAsyncComponent } from 'vue'
+import { markRaw, computed, defineAsyncComponent, onMounted } from 'vue'
+import UpdateModal from './components/Modals/UpdateModal.vue'
+import UpdateControl from './components/UpdateControl.vue'
+import { useUpdater } from './composables/useUpdater.js'
 import { useNavigation } from './composables/useNavigation.js'
 
 const FiltersTab = defineAsyncComponent(() => import('./components/Tabs/FiltersTab.vue'))
@@ -40,6 +46,12 @@ const { activeTab } = useNavigation()
 const currentComponent = computed(() => {
     const tab = tabs.find(t => t.id === activeTab.value)
     return tab?.component
+})
+
+const { checkOnStartup } = useUpdater()
+
+onMounted(() => {
+    checkOnStartup()
 })
 
 </script>

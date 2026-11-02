@@ -71,6 +71,8 @@ pub fn run() {
     let metrics = Arc::new(Metrics::new());
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .manage(app_state)
         .manage(metrics)
         .setup(|app| {

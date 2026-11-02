@@ -1,7 +1,6 @@
 {
     "$schema": "https://schema.tauri.app/config/2",
     "productName": "NetSentry",
-    "version": "0.3.0",
     "identifier": "com.netsentry",
     "build": {
         "beforeDevCommand": "bun run dev",
@@ -34,6 +33,18 @@
             "certificateThumbprint": null,
             "digestAlgorithm": "sha256",
             "timestampUrl": null
+        },
+        "createUpdaterArtifacts": true
+    },
+    "plugins": {
+        "updater": {
+            "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDJCNTlCMDVERkIxOTA2RDMKUldUVEJobjdYYkJaSzlNdmtrTkNCcXFFTVdxYVN4dGM0OVJibU9VTi90YklpRXN4M1U4WXRKTjkK",
+            "endpoints": [
+                "https://github.com/Loafer19/WindowsFix/releases/latest/download/ns-latest.json"
+            ],
+            "windows": {
+                "installMode": "passive"
+            }
         }
     }
 }

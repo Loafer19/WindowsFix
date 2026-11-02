@@ -1,75 +1,156 @@
 name: Build and Release
 
+# Release model
+# - Every release ships the full set: MV, Services Manager and NetSentry, plus
+#   sm-latest.json / ns-latest.json for the Tauri updater and SHA256SUMS.txt
+# - A release is published only when at least one app version (Cargo.toml) differs
+#   from the versions in the current "Latest" release, or when forced via workflow_dispatch
+# - Tags are repo-level CalVer: vYYYY.M.N (N counts releases within the month, starting at 0),
+#   so they never collide with per-app versions and always sort after the old v0.x tags
+# - Pull requests build everything (no release) so Windows build breakage shows up before merge
+
 on:
   push:
     branches:
       - main
+  pull_request:
+    branches:
+      - main
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.github/screenshots/**'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Publish a release even if no app version changed'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-release-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   check-version:
     runs-on: ubuntu-latest
     outputs:
-      version-changed: ${{ steps.check.outputs.changed }}
       mv_version: ${{ steps.check.outputs.mv_version }}
       sm_version: ${{ steps.check.outputs.sm_version }}
       ns_version: ${{ steps.check.outputs.ns_version }}
+      previous_tag: ${{ steps.check.outputs.previous_tag }}
+      changed: ${{ steps.check.outputs.changed }}
+      build: ${{ steps.check.outputs.build }}
+      release: ${{ steps.check.outputs.release }}
+      tag: ${{ steps.check.outputs.tag }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
         with:
-          fetch-depth: 2
-      - name: Check version change
+          fetch-depth: 0
+
+      - name: Compare app versions with the latest release
         id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          FORCE: ${{ inputs.force || false }}
         run: |
-          version_changed=false
-          mv_version=""
-          sm_version=""
-          ns_version=""
+          set -euo pipefail
 
-          # Check MV version
-          if [ -f MV/Cargo.toml ]; then
-            mv_version=$(grep '^version = ' MV/Cargo.toml | sed 's/version = "\(.*\)"/\1/')
-            previous_mv=$(git show HEAD~1:MV/Cargo.toml 2>/dev/null | grep '^version = ' | sed 's/version = "\(.*\)"/\1/' || echo "")
-            if [ "$mv_version" != "$previous_mv" ]; then
-              version_changed=true
+          # First `version = "x"` line of a Cargo.toml is the [package] version
+          # $1 = git ref (empty for the working tree), $2 = path
+          read_version() {
+            if [ -z "$1" ]; then cat "$2" 2>/dev/null || true; else git show "$1:$2" 2>/dev/null || true; fi \
+              | sed -n 's/^version *= *"\([^"]*\)".*/\1/p' | head -n 1
+          }
+
+          mv_version=$(read_version "" MV/Cargo.toml)
+          sm_version=$(read_version "" SM/src-tauri/Cargo.toml)
+          ns_version=$(read_version "" NS/src-tauri/Cargo.toml)
+
+          # tauri.conf.json must not pin its own version (Cargo.toml is the single source of truth)
+          for conf in SM/src-tauri/tauri.conf.json NS/src-tauri/tauri.conf.json; do
+            if jq -e 'has("version")' "$conf" > /dev/null; then
+              echo "::error file=$conf::Remove \"version\" from $conf, the app version comes from Cargo.toml"
+              exit 1
+            fi
+          done
+
+          previous_tag=$(gh release view --json tagName --jq .tagName 2>/dev/null || true)
+          changed=false
+          if [ -z "$previous_tag" ] || ! git rev-parse -q --verify "refs/tags/$previous_tag" > /dev/null; then
+            echo "No usable latest release found, treating versions as changed"
+            changed=true
+          else
+            prev_mv=$(read_version "$previous_tag" MV/Cargo.toml)
+            prev_sm=$(read_version "$previous_tag" SM/src-tauri/Cargo.toml)
+            prev_ns=$(read_version "$previous_tag" NS/src-tauri/Cargo.toml)
+            echo "Latest release $previous_tag: MV=$prev_mv SM=$prev_sm NS=$prev_ns"
+            if [ "$mv_version" != "$prev_mv" ] || [ "$sm_version" != "$prev_sm" ] || [ "$ns_version" != "$prev_ns" ]; then
+              changed=true
             fi
           fi
+          echo "Current: MV=$mv_version SM=$sm_version NS=$ns_version, changed=$changed"
 
-          # Check SM version
-          if [ -f SM/src-tauri/Cargo.toml ]; then
-            sm_version=$(grep '^version = ' SM/src-tauri/Cargo.toml | sed 's/version = "\(.*\)"/\1/')
-            previous_sm=$(git show HEAD~1:SM/src-tauri/Cargo.toml 2>/dev/null | grep '^version = ' | sed 's/version = "\(.*\)"/\1/' || echo "")
-            if [ "$sm_version" != "$previous_sm" ]; then
-              version_changed=true
-            fi
+          release=false
+          if [ "$GITHUB_REF" = "refs/heads/main" ]; then
+            if [ "$EVENT_NAME" = "push" ] && [ "$changed" = "true" ]; then release=true; fi
+            if [ "$EVENT_NAME" = "workflow_dispatch" ] && { [ "$changed" = "true" ] || [ "$FORCE" = "true" ]; }; then release=true; fi
           fi
 
-          # Check NS version
-          if [ -f NS/src-tauri/Cargo.toml ]; then
-            ns_version=$(grep '^version = ' NS/src-tauri/Cargo.toml | sed 's/version = "\(.*\)"/\1/')
-            previous_ns=$(git show HEAD~1:NS/src-tauri/Cargo.toml 2>/dev/null | grep '^version = ' | sed 's/version = "\(.*\)"/\1/' || echo "")
-            if [ "$ns_version" != "$previous_ns" ]; then
-              version_changed=true
-            fi
+          build=$release
+          if [ "$EVENT_NAME" = "pull_request" ] || [ "$EVENT_NAME" = "workflow_dispatch" ]; then build=true; fi
+
+          tag=""
+          if [ "$release" = "true" ]; then
+            prefix="v$(date -u +%Y).$(date -u +%-m)"
+            n=0
+            while git rev-parse -q --verify "refs/tags/$prefix.$n" > /dev/null \
+              || git ls-remote --exit-code --tags origin "refs/tags/$prefix.$n" > /dev/null; do
+              n=$((n + 1))
+            done
+            tag="$prefix.$n"
+            echo "Release tag: $tag"
           fi
 
-          echo "changed=true" >> $GITHUB_OUTPUT
-          echo "mv_version=$mv_version" >> $GITHUB_OUTPUT
-          echo "sm_version=$sm_version" >> $GITHUB_OUTPUT
-          echo "ns_version=$ns_version" >> $GITHUB_OUTPUT
+          {
+            echo "mv_version=$mv_version"
+            echo "sm_version=$sm_version"
+            echo "ns_version=$ns_version"
+            echo "previous_tag=$previous_tag"
+            echo "changed=$changed"
+            echo "build=$build"
+            echo "release=$release"
+            echo "tag=$tag"
+          } >> "$GITHUB_OUTPUT"
 
   build:
     needs: check-version
-    if: needs.check-version.outputs.version-changed == 'true'
-    strategy:
-      matrix:
-        include:
-          - platform: 'windows-2022'
-            args: ''
-    runs-on: ${{ matrix.platform }}
+    if: needs.check-version.outputs.build == 'true'
+    runs-on: windows-2022
+    env:
+      RELEASE: ${{ needs.check-version.outputs.release }}
+      MV_VERSION: ${{ needs.check-version.outputs.mv_version }}
+      SM_VERSION: ${{ needs.check-version.outputs.sm_version }}
+      NS_VERSION: ${{ needs.check-version.outputs.ns_version }}
+      HAS_UPDATER_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
+      # Optional Authenticode signing, disabled until a WINDOWS_CERTIFICATE secret exists
+      HAS_CODESIGN_CERT: ${{ secrets.WINDOWS_CERTIFICATE != '' }}
+      TIMESTAMP_URL: http://timestamp.digicert.com
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
+
+      - name: Require updater signing key for releases
+        if: env.RELEASE == 'true' && env.HAS_UPDATER_KEY != 'true'
+        shell: bash
+        run: |
+          echo "::error::TAURI_SIGNING_PRIVATE_KEY is not set, a release without signed updater artifacts would break auto-update"
+          exit 1
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -77,7 +158,7 @@ jobs:
           node-version: lts/*
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v1
+        uses: oven-sh/setup-bun@v2
 
       - name: Rust setup
         uses: dtolnay/rust-toolchain@stable
@@ -90,119 +171,200 @@ jobs:
             SM/src-tauri -> target
             NS/src-tauri -> target
 
-      - name: Build MV
-        run: cd MV && cargo build --release
-
-      - name: Rename MV executable
-        run: |
-          move MV\target\release\mv.exe MV_${{ needs.check-version.outputs.mv_version }}.exe
-        shell: cmd
-
-      - name: Upload MV artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: mv-${{ matrix.platform }}
-          path: MV_${{ needs.check-version.outputs.mv_version }}.exe
-
-      - name: Install frontend dependencies
-        run: cd SM && bun install
-
-      - name: Create .env file for build
-        run: |
-          echo "GROK_API_KEY=${{ secrets.GROK_API_KEY }}" > SM/.env
-          echo "GROK_API_TIMEOUT=${{ secrets.GROK_API_TIMEOUT || '15' }}" >> SM/.env
-          echo "GROK_MAX_TOKENS=${{ secrets.GROK_MAX_TOKENS || '1000' }}" >> SM/.env
-
-      - name: Build Tauri app
-        uses: tauri-apps/tauri-action@v0
+      # ── Optional code signing hook ──────────────────────────────────────────
+      # Runs only when the WINDOWS_CERTIFICATE secret (base64 .pfx) is present,
+      # with WINDOWS_CERTIFICATE_PASSWORD. Tauri then Authenticode-signs the app
+      # binaries and installers before creating updater signatures.
+      # Alternative: SignPath.io (free for OSS) via signpath/github-action-submit-signing-request
+      - name: Import code signing certificate
+        if: env.HAS_CODESIGN_CERT == 'true'
+        shell: pwsh
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
-          GROK_API_TIMEOUT: ${{ secrets.GROK_API_TIMEOUT || '15' }}
-          GROK_MAX_TOKENS: ${{ secrets.GROK_MAX_TOKENS || '1000' }}
-        with:
-          projectPath: SM
-          args: --bundles nsis
-
-      - name: Rename portable executable
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         run: |
-          copy SM\src-tauri\target\release\services-manager.exe SM\src-tauri\target\release\ServicesManager_${{ needs.check-version.outputs.sm_version }}-portable.exe
-        shell: cmd
+          $pfxPath = Join-Path $env:RUNNER_TEMP 'codesign.pfx'
+          [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
+          $password = ConvertTo-SecureString -String $env:WINDOWS_CERTIFICATE_PASSWORD -Force -AsPlainText
+          $cert = Import-PfxCertificate -FilePath $pfxPath -CertStoreLocation Cert:\CurrentUser\My -Password $password
+          Remove-Item $pfxPath
+          "CODESIGN_THUMBPRINT=$($cert.Thumbprint)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
-      - name: Rename setup executable
+      - name: Prepare Tauri CI config overrides
+        shell: bash
         run: |
-          cd SM\src-tauri\target\release\bundle\nsis
-          ren *.exe ServicesManager_${{ needs.check-version.outputs.sm_version }}-setup.exe
-        shell: cmd
+          set -euo pipefail
+          updater=true
+          if [ "$HAS_UPDATER_KEY" != "true" ]; then
+            echo "::warning::TAURI_SIGNING_PRIVATE_KEY is not set, building without updater artifacts"
+            updater=false
+          fi
+          thumbprint="${CODESIGN_THUMBPRINT:-}"
+          jq -n --argjson updater "$updater" --arg thumb "$thumbprint" --arg ts "$TIMESTAMP_URL" '
+            { bundle: { createUpdaterArtifacts: $updater } }
+            + (if $thumb == "" then {} else
+                { bundle: { createUpdaterArtifacts: $updater,
+                            windows: { certificateThumbprint: $thumb, digestAlgorithm: "sha256", timestampUrl: $ts } } }
+              end)' > "$RUNNER_TEMP/tauri-ci.json"
+          cat "$RUNNER_TEMP/tauri-ci.json"
 
-      - name: Upload setup artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: setup-${{ matrix.platform }}
-          path: SM/src-tauri/target/release/bundle/nsis/ServicesManager_${{ needs.check-version.outputs.sm_version }}-setup.exe
+      - name: Build MV
+        run: cargo build --release --manifest-path MV/Cargo.toml
 
-      - name: Upload portable artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: portable-${{ matrix.platform }}
-          path: SM/src-tauri/target/release/ServicesManager_${{ needs.check-version.outputs.sm_version }}-portable.exe
+      - name: Sign MV executable
+        if: env.CODESIGN_THUMBPRINT != ''
+        shell: pwsh
+        run: |
+          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" | Sort-Object FullName -Descending | Select-Object -First 1
+          & $signtool.FullName sign /sha1 $env:CODESIGN_THUMBPRINT /fd sha256 /tr $env:TIMESTAMP_URL /td sha256 MV\target\release\mv.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Install SM frontend dependencies
+        working-directory: SM
+        run: bun install
+
+      - name: Build Services Manager
+        working-directory: SM
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: bun run tauri build --bundles nsis --config "$RUNNER_TEMP/tauri-ci.json"
 
       - name: Install NS frontend dependencies
-        run: cd NS && bun install
+        working-directory: NS
+        run: bun install
 
-      - name: Build NetSentry Tauri app
-        uses: tauri-apps/tauri-action@v0
+      - name: Build NetSentry
+        working-directory: NS
+        shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           WINDIVERT_PATH: src-tauri/drivers
           WINDIVERT_STATIC: 1
-        with:
-          projectPath: NS
-          args: --bundles nsis
+        run: bun run tauri build --bundles nsis --config "$RUNNER_TEMP/tauri-ci.json"
 
-      - name: Rename NetSentry portable executable
+      - name: Collect release files
+        shell: bash
         run: |
-          copy NS\src-tauri\target\release\net-sentry.exe NS\src-tauri\target\release\NetSentry_${{ needs.check-version.outputs.ns_version }}-portable.exe
-        shell: cmd
+          set -euo pipefail
+          out=dist-release
+          mkdir -p "$out"
 
-      - name: Rename NetSentry setup executable
-        run: |
-          cd NS\src-tauri\target\release\bundle\nsis
-          ren *.exe NetSentry_${{ needs.check-version.outputs.ns_version }}-setup.exe
-        shell: cmd
+          cp MV/target/release/mv.exe "$out/MV_${MV_VERSION}.exe"
 
-      - name: Upload NetSentry setup artifact
+          # $1 = app dir, $2 = cargo binary name, $3 = asset prefix, $4 = version
+          collect_tauri() {
+            local dir=$1 bin=$2 prefix=$3 version=$4
+            cp "$dir/src-tauri/target/release/$bin.exe" "$out/${prefix}_${version}-portable.exe"
+            local setup
+            setup=$(ls "$dir"/src-tauri/target/release/bundle/nsis/*-setup.exe | head -n 1)
+            cp "$setup" "$out/${prefix}_${version}-setup.exe"
+            if [ -f "$setup.sig" ]; then
+              cp "$setup.sig" "$out/${prefix}_${version}-setup.exe.sig"
+            elif [ "$RELEASE" = "true" ]; then
+              echo "::error::Missing updater signature for $setup"
+              exit 1
+            fi
+          }
+          collect_tauri SM services-manager ServicesManager "$SM_VERSION"
+          collect_tauri NS net-sentry NetSentry "$NS_VERSION"
+          ls -la "$out"
+
+      - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: netsentry-setup-${{ matrix.platform }}
-          path: NS/src-tauri/target/release/bundle/nsis/NetSentry_${{ needs.check-version.outputs.ns_version }}-setup.exe
-
-      - name: Upload NetSentry portable artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: netsentry-portable-${{ matrix.platform }}
-          path: NS/src-tauri/target/release/NetSentry_${{ needs.check-version.outputs.ns_version }}-portable.exe
+          name: windowsfix-build
+          path: dist-release/
+          if-no-files-found: error
 
   release:
     needs: [check-version, build]
-    if: needs.check-version.outputs.version-changed == 'true'
+    if: needs.check-version.outputs.release == 'true'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ needs.check-version.outputs.tag }}
+      PREVIOUS_TAG: ${{ needs.check-version.outputs.previous_tag }}
+      MV_VERSION: ${{ needs.check-version.outputs.mv_version }}
+      SM_VERSION: ${{ needs.check-version.outputs.sm_version }}
+      NS_VERSION: ${{ needs.check-version.outputs.ns_version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
-      - name: Download all artifacts
+      - name: Download build artifact
         uses: actions/download-artifact@v4
         with:
-          path: artifacts
+          name: windowsfix-build
+          path: dist-release
 
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: v${{ needs.check-version.outputs.ns_version }}
-          name: Version ${{ needs.check-version.outputs.ns_version }}
-          draft: false
-          prerelease: false
-          files: artifacts/**/*
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Generate updater manifests and checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist-release
+          base="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}"
+          notes="https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG}"
+          pub_date=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+          # $1 = asset prefix, $2 = version, $3 = manifest file
+          manifest() {
+            local file="${1}_${2}-setup.exe"
+            jq -n --arg version "$2" --arg notes "$notes" --arg date "$pub_date" \
+              --arg sig "$(cat "$file.sig")" --arg url "$base/$file" \
+              '{ version: $version, notes: $notes, pub_date: $date,
+                 platforms: {
+                   "windows-x86_64": { signature: $sig, url: $url },
+                   "windows-x86_64-nsis": { signature: $sig, url: $url } } }' > "$3"
+          }
+          manifest ServicesManager "$SM_VERSION" sm-latest.json
+          manifest NetSentry "$NS_VERSION" ns-latest.json
+
+          sha256sum *.exe > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Write release notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "| App | Version |"
+            echo "|-----|---------|"
+            echo "| Services Manager | ${SM_VERSION} |"
+            echo "| NetSentry | ${NS_VERSION} |"
+            echo "| Music Visualizer | ${MV_VERSION} |"
+            echo
+            echo "Installed copies of Services Manager and NetSentry update themselves from this release"
+            echo
+            if [ -n "$PREVIOUS_TAG" ] && git rev-parse -q --verify "refs/tags/$PREVIOUS_TAG" > /dev/null; then
+              echo "### Changes since ${PREVIOUS_TAG}"
+              git log --no-merges --format='- %s (%h)' "${PREVIOUS_TAG}..${GITHUB_SHA}" | head -n 60
+              echo
+            fi
+            echo "### SHA256 checksums"
+            echo '```'
+            cat dist-release/SHA256SUMS.txt
+            echo '```'
+            echo
+            echo "Verify on Windows: \`Get-FileHash .\\<file>.exe -Algorithm SHA256\`"
+          } > release-notes.md
+
+      - name: Create release
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" > /dev/null; then
+            echo "::error::Tag ${TAG} already exists, refusing to attach files to an existing release"
+            exit 1
+          fi
+          gh release create "$TAG" dist-release/* \
+            --target "$GITHUB_SHA" \
+            --title "WindowsFix ${TAG#v} (SM ${SM_VERSION}, NS ${NS_VERSION}, MV ${MV_VERSION})" \
+            --notes-file release-notes.md \
+            --latest
