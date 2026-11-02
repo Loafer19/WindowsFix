@@ -45,6 +45,8 @@
                 </div>
             </div>
 
+            <UpdateModal />
+
         </div>
     </div>
 </template>
@@ -54,12 +56,14 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import { markRaw, onMounted, onUnmounted, ref, computed } from 'vue'
 import Button from './components/Button.vue'
 import Icon from './components/Icon.vue'
+import UpdateModal from './components/Modals/UpdateModal.vue'
 import ConfigsTab from './components/Tabs/ConfigsTab.vue'
 import DashboardTab from './components/Tabs/DashboardTab.vue'
 import ProcessesTab from './components/Tabs/ProcessesTab.vue'
 import { useNetwork } from './composables/useNetwork.js'
 import { useProcessManagement } from './composables/useProcessManagement.js'
 import { useToast } from './composables/useToast.js'
+import { useUpdater } from './composables/useUpdater.js'
 import { rustService } from './services/rust.js'
 
 const tabs = [
@@ -81,6 +85,7 @@ const totals24h = ref({ downloadBytes: 0, uploadBytes: 0 })
 const { notifications, warning: warnToast, dismiss } = useToast()
 const { processes, update: updateProcesses, setLimit, toggleBlock, terminate } = useProcessManagement()
 const { downloadHistory, uploadHistory, labels, pushStats } = useNetwork()
+const { checkOnStartup } = useUpdater()
 
 const notifFiredDl = ref(false)
 const notifFiredUl = ref(false)
@@ -109,6 +114,9 @@ onMounted(async () => {
             )
         }
     } catch {}
+
+    // Silent background check, shows the update modal only when a newer signed build exists
+    checkOnStartup()
 
     try {
         const appWindow = getCurrentWindow()

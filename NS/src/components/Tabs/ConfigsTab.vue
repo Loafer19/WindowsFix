@@ -154,16 +154,16 @@
                 <div class="flex items-center gap-3 flex-wrap">
                     <Icon name="settings" class="w-5 h-5 text-primary" />
                     <span class="text-sm font-medium">Version</span>
-                    <span class="badge badge-dark font-mono text-xs">{{ appVersion || '—' }}</span>
-                    <button class="btn btn-xs btn-outline" :disabled="checkingUpdates" @click="checkForUpdates">
+                    <span class="badge badge-dark font-mono text-xs">{{ currentVersion || '—' }}</span>
+                    <button v-if="update" class="btn btn-xs btn-primary" @click="openPrompt">
+                        Update to v{{ update.version }}
+                    </button>
+                    <button v-else class="btn btn-xs btn-outline" :disabled="checkingUpdates" @click="checkForUpdates()">
                         <span v-if="checkingUpdates" class="loading loading-spinner loading-xs mr-1"></span>
                         Check for updates
                     </button>
-                    <a v-if="updateChecked && updateAvailable" :href="releaseUrl" target="_blank"
-                        class="link link-primary text-sm font-medium">
-                        v{{ latestVersion }} available →
-                    </a>
-                    <span v-if="updateChecked && !updateAvailable" class="text-xs text-success">✓ Up to date</span>
+                    <span v-if="updateError" class="text-xs text-error" :title="updateError">Update check failed</span>
+                    <span v-else-if="updateChecked && !update" class="text-xs text-success">✓ Up to date</span>
                 </div>
 
                 <div class="divider my-2"></div>
@@ -230,9 +230,9 @@
 </template>
 
 <script setup>
-import { getVersion } from '@tauri-apps/api/app'
 import { onMounted, reactive, ref } from 'vue'
 import { useToast } from '../../composables/useToast.js'
+import { useUpdater } from '../../composables/useUpdater.js'
 import { rustService } from '../../services/rust.js'
 import Button from '../Button.vue'
 import Icon from '../Icon.vue'
@@ -277,25 +277,28 @@ const savingSettings = ref(false)
 const installingWindivert = ref(false)
 const limitIndex = ref(0)
 
-const appVersion = ref('')
-const checkingUpdates = ref(false)
-const updateAvailable = ref(false)
-const updateChecked = ref(false)
-const latestVersion = ref('')
-const releaseUrl = ref('https://github.com/Loafer19/WindowsFix/releases/latest')
+const {
+    currentVersion,
+    update,
+    checking: checkingUpdates,
+    checked: updateChecked,
+    error: updateError,
+    loadVersion,
+    checkForUpdates,
+    openPrompt,
+} = useUpdater()
 
 onMounted(async () => {
     try {
-        const [s, n, w, ver] = await Promise.all([
+        const [s, n, w] = await Promise.all([
             rustService.getSettings(),
             rustService.getNotificationConfig(),
             rustService.checkWinDivertStatus(),
-            getVersion().catch(() => ''),
+            loadVersion(),
         ])
         if (s) Object.assign(appSettings, s)
         if (n) Object.assign(notif, n)
         if (w) Object.assign(windivertStatus, w)
-        appVersion.value = ver
         const index = LIMIT_PRESETS.findIndex(
             (p) => p.value === appSettings.globalLimitBps,
         )
@@ -304,40 +307,6 @@ onMounted(async () => {
         }
     } catch {}
 })
-
-async function checkForUpdates() {
-    checkingUpdates.value = true
-    updateChecked.value = false
-    updateAvailable.value = false
-    try {
-        const res = await fetch(
-            'https://api.github.com/repos/Loafer19/WindowsFix/releases/latest',
-        )
-        const data = await res.json()
-        const latest = (data.tag_name ?? '').replace(/^v/, '')
-        latestVersion.value = latest
-        releaseUrl.value =
-            data.html_url ?? 'https://github.com/Loafer19/WindowsFix/releases'
-        updateAvailable.value =
-            latest !== '' && compareVersions(latest, appVersion.value) > 0
-        updateChecked.value = true
-    } catch {
-        showError('Failed to check for updates')
-    } finally {
-        checkingUpdates.value = false
-    }
-}
-
-/** Compare two semver strings. Returns >0 if a is newer, 0 if equal, <0 if older. */
-function compareVersions(a, b) {
-    const pa = a.split('.').map(Number)
-    const pb = b.split('.').map(Number)
-    for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-        const diff = (pa[i] ?? 0) - (pb[i] ?? 0)
-        if (diff !== 0) return diff
-    }
-    return 0
-}
 
 async function saveNotif() {
     try {
