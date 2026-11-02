@@ -83,6 +83,27 @@
                 </div>
             </div>
 
+            <!-- AI Insights status -->
+            <div v-if="aiStatus && !aiStatus.configured" class="alert alert-warning mb-4">
+                <Icon name="info" class="w-5 h-5" />
+                <div class="flex-1">
+                    <div class="font-medium">AI insights need an xAI API key</div>
+                    <div class="text-sm">Add your own key in Settings to get explanations and recommendations</div>
+                </div>
+                <button class="btn btn-sm" @click="$emit('open-settings')">
+                    <Icon name="settings" class="w-4 h-4" />
+                    Open Settings
+                </button>
+            </div>
+            <div v-else-if="selectedService?.aiError" class="alert alert-error mb-4">
+                <Icon name="alarmWarning" class="w-5 h-5" />
+                <span class="flex-1 text-sm">{{ selectedService.aiError }}</span>
+                <button v-if="isKeyError" class="btn btn-sm" @click="$emit('open-settings')">
+                    <Icon name="settings" class="w-4 h-4" />
+                    Open Settings
+                </button>
+            </div>
+
             <!-- Service Info -->
             <div class="space-y-4">
                 <div v-if="selectedService.info?.description">
@@ -105,7 +126,12 @@
 
             <div class="modal-action">
                 <button class="btn" @click="$emit('close')" :disabled="selectedService?.isReloading">Cancel</button>
-                <Button :text="'Reload Info'" class="btn btn-secondary"
+                <Button v-if="aiStatus && !aiStatus.configured" class="btn btn-secondary"
+                    @clicked="$emit('open-settings')">
+                    <Icon name="settings" />
+                    Set API Key
+                </Button>
+                <Button v-else :text="'Reload Info'" class="btn btn-secondary"
                     :is-loading="selectedService?.isReloading" :disabled="selectedService?.isReloading"
                     @clicked="$emit('reload', selectedService)">
                     <Icon name="resetRight" />
@@ -117,7 +143,8 @@
 </template>
 
 <script setup>
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
+import { useAiSettings } from '../../composables/useAiSettings.js'
 import { getStartupTypeColor, getStatusColor } from '../../services/helpers.js'
 import Button from '../Button.vue'
 
@@ -132,7 +159,22 @@ const props = defineProps({
     },
 })
 
-const emit = defineEmits(['close', 'reload', 'action'])
+const emit = defineEmits(['close', 'reload', 'action', 'open-settings'])
+
+const { aiStatus, loadAiStatus } = useAiSettings()
+
+const isKeyError = computed(() =>
+    ['AiKeyMissing', 'AiAuth'].includes(props.selectedService?.aiErrorType),
+)
+
+// Refresh key status each time the modal opens (key may have been changed in Settings)
+watch(
+    () => props.showModal,
+    (open) => {
+        if (open) loadAiStatus()
+    },
+    { immediate: true },
+)
 
 const newStartupType = ref('')
 const pendingAction = ref('')

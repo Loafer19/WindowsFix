@@ -18,21 +18,24 @@
 </template>
 
 <script setup>
-import { markRaw, ref, computed, defineAsyncComponent } from 'vue'
+import { markRaw, computed, defineAsyncComponent } from 'vue'
+import { useNavigation } from './composables/useNavigation.js'
 
 const FiltersTab = defineAsyncComponent(() => import('./components/Tabs/FiltersTab.vue'))
 const HistoryTab = defineAsyncComponent(() => import('./components/Tabs/HistoryTab.vue'))
 const PresetsTab = defineAsyncComponent(() => import('./components/Tabs/PresetsTab.vue'))
 const StartupTab = defineAsyncComponent(() => import('./components/Tabs/StartupTab.vue'))
+const SettingsTab = defineAsyncComponent(() => import('./components/Tabs/SettingsTab.vue'))
 
 const tabs = [
     { id: 'filters', name: 'Services', component: markRaw(FiltersTab), icon: 'equalizer' },
     { id: 'presets', name: 'Presets', component: markRaw(PresetsTab), icon: 'flashlight' },
     { id: 'startup', name: 'Startup Apps', component: markRaw(StartupTab), icon: 'spaceShip2' },
     { id: 'history', name: 'History', component: markRaw(HistoryTab), icon: 'history' },
+    { id: 'settings', name: 'Settings', component: markRaw(SettingsTab), icon: 'settings' },
 ]
 
-const activeTab = ref('filters')
+const { activeTab } = useNavigation()
 
 const currentComponent = computed(() => {
     const tab = tabs.find(t => t.id === activeTab.value)
