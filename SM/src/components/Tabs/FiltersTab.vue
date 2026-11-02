@@ -202,7 +202,8 @@
         @confirm="confirmDisable" />
 
     <ServiceDetailsModal :showModal="showDetailsModal" :selectedService="selectedServiceForDetails"
-        @close="showDetailsModal = false" @reload="reloadInfo" @action="handleServiceAction" />
+        @close="showDetailsModal = false" @reload="reloadInfo" @action="handleServiceAction"
+        @open-settings="openSettings" />
 </template>
 
 <script setup>
@@ -212,9 +213,17 @@ import Icon from '../Icon.vue'
 import ConfirmDisableModal from '../Modals/ConfirmDisableModal.vue'
 import ServiceDetailsModal from '../Modals/ServiceDetailsModal.vue'
 import { useServices } from '../../composables/useServices.js'
+import { useNavigation } from '../../composables/useNavigation.js'
 import { getStartupTypeColor, getStatusColor, calcPercentage } from '../../services/helpers.js'
 
 const { loading, error, reloadInfo, handleServiceAction, totalServices, servicesByStatus, servicesByStartupType, filteredServices, searchQuery, selectedStatus, selectedStartupType, clearFilters, loadServicesData, refresh, showModal, selectedService, showDetailsModal, selectedServiceForDetails, openModal, confirmDisable, openModalForDetails } = useServices()
+
+const { goTo } = useNavigation()
+
+const openSettings = () => {
+    showDetailsModal.value = false
+    goTo('settings')
+}
 
 const getServiceInfo = (service) => ({
     statusClass: `badge-${getStatusColor(service.status)}`,

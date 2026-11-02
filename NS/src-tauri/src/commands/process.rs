@@ -4,13 +4,13 @@ use std::sync::Arc;
 use tauri::State;
 
 use crate::models::{AppState, ProcessInfo};
+use crate::sync::LockExt;
 
 /// Look up the cached exe path for `pid`, falling back to a descriptive string.
 fn exe_path_for_pid_cached(pid: u32, state: &AppState) -> String {
     state
         .pid_to_exe
-        .lock()
-        .unwrap()
+        .lock_or_recover()
         .get(&pid)
         .cloned()
         .unwrap_or_else(|| format!("PID {pid}"))
@@ -94,9 +94,9 @@ pub async fn set_global_limit(
     state: State<'_, Arc<AppState>>,
 ) -> Result<(), String> {
     state.limit_bps.store(bytes_per_sec, Ordering::Relaxed);
-    let mut settings = state.settings.lock().unwrap();
+    let mut settings = state.settings.lock_or_recover();
     settings.global_limit_bps = bytes_per_sec;
-    let notif = state.notification_config.lock().unwrap().clone();
+    let notif = state.notification_config.lock_or_recover().clone();
     crate::settings::save_settings(&settings, &notif)?;
     Ok(())
 }
@@ -107,7 +107,7 @@ pub async fn set_process_limit(
     bytes_per_sec: u64,
     state: State<'_, Arc<AppState>>,
 ) -> Result<(), String> {
-    let mut limits = state.process_limits.lock().unwrap();
+    let mut limits = state.process_limits.lock_or_recover();
     if bytes_per_sec == 0 {
         limits.remove(&pid);
     } else {
@@ -119,18 +119,18 @@ pub async fn set_process_limit(
 #[tauri::command]
 pub async fn block_process(pid: u32, state: State<'_, Arc<AppState>>) -> Result<(), String> {
     let exe_path = exe_path_for_pid_cached(pid, &state);
-    state.blocked_exes.lock().unwrap().insert(exe_path.clone());
+    state.blocked_exes.lock_or_recover().insert(exe_path.clone());
 
     // Propagate block to all currently-known PIDs with the same exe path
     let matching_pids: Vec<u32> = {
-        let p2e = state.pid_to_exe.lock().unwrap();
+        let p2e = state.pid_to_exe.lock_or_recover();
         p2e.iter()
             .filter(|(_, v)| **v == exe_path)
             .map(|(k, _)| *k)
             .collect()
     };
     {
-        let mut bpids = state.blocked_pids.lock().unwrap();
+        let mut bpids = state.blocked_pids.lock_or_recover();
         for p in matching_pids {
             bpids.insert(p);
         }
@@ -142,18 +142,18 @@ pub async fn block_process(pid: u32, state: State<'_, Arc<AppState>>) -> Result<
 #[tauri::command]
 pub async fn unblock_process(pid: u32, state: State<'_, Arc<AppState>>) -> Result<(), String> {
     let exe_path = exe_path_for_pid_cached(pid, &state);
-    state.blocked_exes.lock().unwrap().remove(&exe_path);
+    state.blocked_exes.lock_or_recover().remove(&exe_path);
 
     // Remove block from all currently-known PIDs with the same exe path
     let matching_pids: Vec<u32> = {
-        let p2e = state.pid_to_exe.lock().unwrap();
+        let p2e = state.pid_to_exe.lock_or_recover();
         p2e.iter()
             .filter(|(_, v)| **v == exe_path)
             .map(|(k, _)| *k)
             .collect()
     };
     {
-        let mut bpids = state.blocked_pids.lock().unwrap();
+        let mut bpids = state.blocked_pids.lock_or_recover();
         for p in matching_pids {
             bpids.remove(&p);
         }

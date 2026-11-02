@@ -6,6 +6,7 @@ use tauri::State;
 use crate::capture;
 use crate::metrics::{Metrics, MetricsSnapshot};
 use crate::models::{AppState, HourlyPoint, NetworkStats};
+use crate::sync::LockExt;
 
 /// Number of historical hourly points to include in the 24h view.
 /// One slot is reserved for the current (incomplete) hour.
@@ -23,9 +24,13 @@ pub async fn start_capture(
     }
     let state_clone = Arc::clone(&*state);
     let metrics_clone = Arc::clone(&*metrics);
-    std::thread::spawn(move || {
-        capture::capture_loop(state_clone, metrics_clone);
-    });
+    let spawned = std::thread::Builder::new()
+        .name("netsentry-capture".into())
+        .spawn(move || capture::run_supervised(state_clone, metrics_clone));
+    if let Err(e) = spawned {
+        state.capture_running.store(false, Ordering::Relaxed);
+        return Err(format!("Failed to start capture thread: {e}"));
+    }
     Ok(())
 }
 
@@ -37,7 +42,7 @@ pub async fn stop_capture(state: State<'_, Arc<AppState>>) -> Result<(), String>
 
 #[tauri::command]
 pub async fn get_network_stats(state: State<'_, Arc<AppState>>) -> Result<NetworkStats, String> {
-    let w = state.window.lock().unwrap();
+    let w = state.window.lock_or_recover();
     let elapsed = w.start_time.elapsed().as_secs_f64().max(0.1);
     let download_bps = ((w.download_bytes as f64 / elapsed).round()) as u64;
     let upload_bps = ((w.upload_bytes as f64 / elapsed).round()) as u64;
@@ -50,7 +55,7 @@ pub async fn get_network_stats(state: State<'_, Arc<AppState>>) -> Result<Networ
 #[tauri::command]
 pub async fn get_24h_totals(state: State<'_, Arc<AppState>>) -> Result<HourlyPoint, String> {
     let (dl, ul) = {
-        let hourly = state.global_hourly.lock().unwrap();
+        let hourly = state.global_hourly.lock_or_recover();
         hourly.iter().fold((0u64, 0u64), |(a, b), &(d, u)| (a + d, b + u))
     };
     // Include the current (incomplete) hour for real-time totals

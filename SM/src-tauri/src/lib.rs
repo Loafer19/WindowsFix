@@ -9,6 +9,8 @@ use std::time::SystemTime;
 use tauri::State;
 
 use core::ai::fetch_service_info_from_ai;
+use core::ai_settings::{self, AiSettings, AiStatus, KeyringStore, SecretStore};
+use core::sync::LockExt;
 use config::config::AppConfig;
 use core::history::HistoryEntry;
 use core::models::{AppError, AppState, ServiceInfo, ServicesCache, StartupApp, WindowsService};
@@ -25,7 +27,7 @@ const MAX_HISTORY_ENTRIES: u32 = 500;
 async fn get_services(state: State<'_, AppState>) -> Result<Vec<WindowsService>, AppError> {
     eprintln!("DEBUG: get_services called");
     let needs_refresh = {
-        let cache = state.services_cache.lock().unwrap();
+        let cache = state.services_cache.lock_or_recover();
         let ttl = cache.ttl;
         let needs = cache.data.is_empty()
             || SystemTime::now()
@@ -39,7 +41,7 @@ async fn get_services(state: State<'_, AppState>) -> Result<Vec<WindowsService>,
     if needs_refresh {
         match refresh_services_cache(&state).await {
             Ok(new_data) => {
-                let mut cache = state.services_cache.lock().unwrap();
+                let mut cache = state.services_cache.lock_or_recover();
                 cache.data = new_data;
                 cache.last_updated = SystemTime::now();
             }
@@ -47,7 +49,7 @@ async fn get_services(state: State<'_, AppState>) -> Result<Vec<WindowsService>,
         }
     }
 
-    let cache = state.services_cache.lock().unwrap();
+    let cache = state.services_cache.lock_or_recover();
     eprintln!("DEBUG: Returning {} services from cache", cache.data.len());
     Ok(cache.data.clone())
 }
@@ -56,7 +58,7 @@ async fn get_services(state: State<'_, AppState>) -> Result<Vec<WindowsService>,
 async fn refresh_services(state: State<'_, AppState>) -> Result<(), AppError> {
     match refresh_services_cache(&state).await {
         Ok(new_data) => {
-            let mut cache = state.services_cache.lock().unwrap();
+            let mut cache = state.services_cache.lock_or_recover();
             cache.data = new_data;
             cache.last_updated = SystemTime::now();
             Ok(())
@@ -70,29 +72,75 @@ async fn reload_service_info(
     service_name: String,
     state: State<'_, AppState>,
 ) -> Result<ServiceInfo, AppError> {
-    let info = match fetch_service_info_from_ai(&service_name).await {
-        Ok(ai_info) => ai_info,
-        Err(_) => {
-            let services_info = state.services_info.lock().unwrap();
-            if let Some(existing) = services_info.get(&service_name) {
-                if existing.explained.is_some() || existing.recommendation.is_some() {
-                    return Ok(existing.clone());
-                }
-            }
-            get_default_service_info(&service_name, &services_info)
-        }
-    };
+    // Errors (missing/invalid key, network) are returned to the UI so it can
+    // prompt the user instead of silently showing stale defaults.
+    let (api_key, _) = ai_settings::current_api_key(&KeyringStore).ok_or_else(|| AppError::AiKeyMissing {
+        message: "Add your xAI API key in Settings to get AI insights".to_string(),
+    })?;
+    let settings = load_ai_settings(&state);
+    let info = fetch_service_info_from_ai(&service_name, &api_key, &settings).await?;
 
-    let mut cache = state.services_cache.lock().unwrap();
+    let mut cache = state.services_cache.lock_or_recover();
     if let Some(service) = cache.data.iter_mut().find(|s| s.name == service_name) {
         service.info = info.clone();
     }
     drop(cache);
 
-    let mut services_info = state.services_info.lock().unwrap();
+    let mut services_info = state.services_info.lock_or_recover();
     services_info.insert(service_name.clone(), info.clone());
 
     Ok(info)
+}
+
+// ─── AI settings ────────────────────────────────────────────────────────────
+
+fn load_ai_settings(state: &AppState) -> AiSettings {
+    ai_settings::load_settings(&state.db.lock_or_recover())
+}
+
+#[tauri::command]
+async fn get_ai_status(state: State<'_, AppState>) -> Result<AiStatus, AppError> {
+    Ok(ai_settings::build_status(&KeyringStore, load_ai_settings(&state)))
+}
+
+#[tauri::command]
+async fn save_ai_key(api_key: String, state: State<'_, AppState>) -> Result<AiStatus, AppError> {
+    let key = ai_settings::validate_api_key(&api_key)?;
+    KeyringStore.set(&key)?;
+    Ok(ai_settings::build_status(&KeyringStore, load_ai_settings(&state)))
+}
+
+#[tauri::command]
+async fn clear_ai_key(state: State<'_, AppState>) -> Result<AiStatus, AppError> {
+    KeyringStore.delete()?;
+    Ok(ai_settings::build_status(&KeyringStore, load_ai_settings(&state)))
+}
+
+#[tauri::command]
+async fn save_ai_settings(settings: AiSettings, state: State<'_, AppState>) -> Result<AiSettings, AppError> {
+    ai_settings::save_settings(&state.db.lock_or_recover(), &settings)
+}
+
+/// Test a key/model pair. `api_key` is the unsaved value from the input (if
+/// any), otherwise the stored/env key is used.
+#[tauri::command]
+async fn test_ai_connection(
+    api_key: Option<String>,
+    model: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<String, AppError> {
+    let settings = load_ai_settings(&state);
+    let key = match api_key.as_deref().map(str::trim).filter(|k| !k.is_empty()) {
+        Some(k) => ai_settings::validate_api_key(k)?,
+        None => ai_settings::current_api_key(&KeyringStore)
+            .map(|(k, _)| k)
+            .ok_or_else(|| AppError::AiKeyMissing { message: "Paste an API key first".to_string() })?,
+    };
+    let model = model
+        .map(|m| m.trim().to_string())
+        .filter(|m| !m.is_empty())
+        .unwrap_or(settings.model);
+    core::ai::test_connection(&key, &model, settings.timeout_secs).await
 }
 
 #[tauri::command]
@@ -232,7 +280,7 @@ async fn get_startup_apps(state: State<'_, AppState>) -> Result<Vec<StartupApp>,
     match tokio::task::spawn_blocking(platform::startup_apps::list_startup_apps).await {
         Ok(result) => match result {
             Ok(apps) => {
-                *state.startup_apps_cache.lock().unwrap() = apps.clone();
+                *state.startup_apps_cache.lock_or_recover() = apps.clone();
                 Ok(apps)
             }
             Err(e) => Err(e),
@@ -257,8 +305,8 @@ async fn remove_startup_app(
         Ok(result) => match result {
             Ok(()) => {
                 let entry = HistoryEntry::startup_app(&name, "remove", location.as_str(), Some(app_clone.path.as_str()));
-                state.history.lock().unwrap().push(entry.clone());
-                let _ = core::database::append_history(&state.db.lock().unwrap(), &entry);
+                state.history.lock_or_recover().push(entry.clone());
+                let _ = core::database::append_history(&state.db.lock_or_recover(), &entry);
                 Ok(())
             }
             Err(e) => Err(e),
@@ -281,8 +329,8 @@ async fn add_startup_app(
         Ok(result) => match result {
             Ok(()) => {
                 let entry = HistoryEntry::startup_app(&app.name, "add", app.location.as_str(), None);
-                state.history.lock().unwrap().push(entry.clone());
-                let _ = core::database::append_history(&state.db.lock().unwrap(), &entry);
+                state.history.lock_or_recover().push(entry.clone());
+                let _ = core::database::append_history(&state.db.lock_or_recover(), &entry);
                 Ok(())
             }
             Err(e) => Err(e),
@@ -309,8 +357,8 @@ async fn toggle_startup_app(
         Ok(result) => match result {
             Ok(()) => {
                 let entry = HistoryEntry::startup_app(&name, new_state, location.as_str(), Some(path.as_str()));
-                state.history.lock().unwrap().push(entry.clone());
-                let _ = core::database::append_history(&state.db.lock().unwrap(), &entry);
+                state.history.lock_or_recover().push(entry.clone());
+                let _ = core::database::append_history(&state.db.lock_or_recover(), &entry);
                 Ok(())
             }
             Err(e) => Err(e),
@@ -325,7 +373,7 @@ async fn get_history(
     filter: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<Vec<HistoryEntry>, AppError> {
-    let history = state.history.lock().unwrap();
+    let history = state.history.lock_or_recover();
     let entries: Vec<HistoryEntry> = match filter.as_deref() {
         Some("service") => history
             .iter()
@@ -352,9 +400,9 @@ async fn get_history_by_type(
 
 #[tauri::command]
 async fn clear_history(state: State<'_, AppState>) -> Result<(), AppError> {
-    let mut history = state.history.lock().unwrap();
+    let mut history = state.history.lock_or_recover();
     history.clear();
-    let db = state.db.lock().unwrap();
+    let db = state.db.lock_or_recover();
     let _ = core::database::clear_history(&db);
     Ok(())
 }
@@ -362,7 +410,7 @@ async fn clear_history(state: State<'_, AppState>) -> Result<(), AppError> {
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 fn update_cache_service(state: &AppState, service_name: &str, updated: &WindowsService) {
-    let mut cache = state.services_cache.lock().unwrap();
+    let mut cache = state.services_cache.lock_or_recover();
     if let Some(service) = cache.data.iter_mut().find(|s| s.name == service_name) {
         service.status = updated.status.clone();
         service.startup_type = updated.startup_type.clone();
@@ -370,12 +418,12 @@ fn update_cache_service(state: &AppState, service_name: &str, updated: &WindowsS
 }
 
 fn get_cached_status(state: &AppState, service_name: &str) -> Option<String> {
-    let cache = state.services_cache.lock().unwrap();
+    let cache = state.services_cache.lock_or_recover();
     cache.data.iter().find(|s| s.name == service_name).map(|s| s.status.clone())
 }
 
 fn get_cached_startup_type(state: &AppState, service_name: &str) -> Option<String> {
-    let cache = state.services_cache.lock().unwrap();
+    let cache = state.services_cache.lock_or_recover();
     cache.data.iter().find(|s| s.name == service_name).map(|s| s.startup_type.clone())
 }
 
@@ -387,8 +435,8 @@ fn record_service_history(
     new_value: Option<&str>,
 ) {
     let entry = HistoryEntry::service(service_name, action, old_value, new_value);
-    state.history.lock().unwrap().push(entry.clone());
-    let _ = core::database::append_history(&state.db.lock().unwrap(), &entry);
+    state.history.lock_or_recover().push(entry.clone());
+    let _ = core::database::append_history(&state.db.lock_or_recover(), &entry);
 }
 
 async fn refresh_services_cache(_state: &AppState) -> Result<Vec<WindowsService>, AppError> {
@@ -428,9 +476,6 @@ async fn refresh_services_cache(_state: &AppState) -> Result<Vec<WindowsService>
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     eprintln!("DEBUG: Starting Tauri app");
-    if let Err(e) = dotenvy::dotenv() {
-        println!("Warning: Could not load .env file: {}", e);
-    }
 
     let config = AppConfig::from_env();
     eprintln!("DEBUG: Config loaded");
@@ -467,18 +512,21 @@ pub fn run() {
 
     // Preload services cache to avoid delay on first load
     eprintln!("DEBUG: Preloading services cache");
-    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
-    rt.block_on(async {
-        match refresh_services_cache(&app_state).await {
-            Ok(services) => {
-                let mut cache = app_state.services_cache.lock().unwrap();
-                cache.data = services;
-                cache.last_updated = SystemTime::now();
-                eprintln!("DEBUG: Preloaded {} services", cache.data.len());
+    match tokio::runtime::Builder::new_current_thread().enable_all().build() {
+        Ok(rt) => rt.block_on(async {
+            match refresh_services_cache(&app_state).await {
+                Ok(services) => {
+                    let mut cache = app_state.services_cache.lock_or_recover();
+                    cache.data = services;
+                    cache.last_updated = SystemTime::now();
+                    eprintln!("DEBUG: Preloaded {} services", cache.data.len());
+                }
+                Err(e) => eprintln!("DEBUG: Failed to preload services: {}", e),
             }
-            Err(e) => eprintln!("DEBUG: Failed to preload services: {}", e),
-        }
-    });
+        }),
+        // Not fatal: the cache is filled lazily on the first get_services call
+        Err(e) => eprintln!("Warning: could not create preload runtime, skipping preload: {}", e),
+    }
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -499,6 +547,11 @@ pub fn run() {
             get_history,
             get_history_by_type,
             clear_history,
+            get_ai_status,
+            save_ai_key,
+            clear_ai_key,
+            save_ai_settings,
+            test_ai_connection,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

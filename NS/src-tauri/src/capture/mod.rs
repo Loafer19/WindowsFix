@@ -12,12 +12,45 @@ use windivert::WinDivert;
 use crate::history::current_unix_hour;
 use crate::metrics::Metrics;
 use crate::models::AppState;
+use crate::sync::LockExt;
 use packet_processor::{exe_path_for_pid, extract_local_port, refresh_port_pid_cache, PortPidCache};
 
 /// Maximum size of an IPv4 or IPv6 packet in bytes (2^16 − 1).
 const MAX_IP_PACKET_SIZE: usize = 65535;
 
+/// After this many consecutive `recv` failures the WinDivert handle is treated
+/// as broken and reopened by the supervisor.
+const MAX_CONSECUTIVE_RECV_ERRORS: u32 = 50;
+
+/// Run the capture loop and restart it if it panics or its handle breaks,
+/// instead of silently losing capture (and with it traffic shaping/blocking)
+/// for the rest of the session.
+pub fn run_supervised(state: Arc<AppState>, metrics: Arc<Metrics>) {
+    let mut restarts: u32 = 0;
+    while state.capture_running.load(Ordering::Relaxed) {
+        let s = Arc::clone(&state);
+        let m = Arc::clone(&metrics);
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || capture_loop(s, m))) {
+            Ok(()) => eprintln!("Capture loop exited (handle error), restarting"),
+            Err(panic) => {
+                let msg = panic
+                    .downcast_ref::<&str>()
+                    .map(|s| s.to_string())
+                    .or_else(|| panic.downcast_ref::<String>().cloned())
+                    .unwrap_or_else(|| "unknown panic".to_string());
+                eprintln!("Capture loop panicked: {}, restarting", msg);
+            }
+        }
+        metrics.capture_errors.fetch_add(1, Ordering::Relaxed);
+        restarts = restarts.saturating_add(1);
+        // Back off a little more on repeated failures (max 30s)
+        std::thread::sleep(Duration::from_secs(u64::from(restarts.min(15)) * 2));
+    }
+    state.capture_running.store(false, Ordering::Relaxed);
+}
+
 /// Main packet capture loop. Runs in its own thread, retrying on WinDivert open failure.
+/// Returns when the WinDivert handle keeps failing so the supervisor can reopen it.
 pub fn capture_loop(state: Arc<AppState>, metrics: Arc<Metrics>) {
     let handle = loop {
         match WinDivert::network("ip", 0, WinDivertFlags::new()) {
@@ -41,6 +74,7 @@ pub fn capture_loop(state: Arc<AppState>, metrics: Arc<Metrics>) {
     let mut proc_hourly_acc: HashMap<String, (u64, u64)> = HashMap::new();
     let mut global_hourly_acc: (u64, u64) = (0, 0);
     let mut recv_buf = vec![0u8; MAX_IP_PACKET_SIZE];
+    let mut consecutive_recv_errors: u32 = 0;
 
     loop {
         // 1. Logic Tick (Every 1 second) - Manage state and rollover
@@ -49,15 +83,15 @@ pub fn capture_loop(state: Arc<AppState>, metrics: Arc<Metrics>) {
 
             // Sync blocked PIDs and clear per-second window
             {
-                let mut w = state.window.lock().unwrap();
+                let mut w = state.window.lock_or_recover();
                 w.download_bytes = 0;
                 w.upload_bytes = 0;
                 w.start_time = std::time::Instant::now();
 
-                let blocked = state.blocked_pids.lock().unwrap();
+                let blocked = state.blocked_pids.lock_or_recover();
                 local_blocked_pids = blocked.clone();
 
-                state.process_bytes.lock().unwrap().clear();
+                state.process_bytes.lock_or_recover().clear();
             }
 
             // Hour Rollover
@@ -92,9 +126,19 @@ pub fn capture_loop(state: Arc<AppState>, metrics: Arc<Metrics>) {
 
         // 3. Receive Packet
         let packet = match handle.recv(Some(&mut recv_buf)) {
-            Ok(p) => p,
-            Err(_e) => {
+            Ok(p) => {
+                consecutive_recv_errors = 0;
+                p
+            }
+            Err(e) => {
                 metrics.capture_errors.fetch_add(1, Ordering::Relaxed);
+                consecutive_recv_errors += 1;
+                if consecutive_recv_errors >= MAX_CONSECUTIVE_RECV_ERRORS {
+                    eprintln!("WinDivert recv failed {} times in a row ({}), reopening", consecutive_recv_errors, e);
+                    return;
+                }
+                // Avoid a hot spin while the driver is in a bad state
+                std::thread::sleep(Duration::from_millis(10));
                 continue;
             }
         };
@@ -117,7 +161,7 @@ pub fn capture_loop(state: Arc<AppState>, metrics: Arc<Metrics>) {
                     path.clone()
                 } else {
                     let path = {
-                        let mut p2e = state.pid_to_exe.lock().unwrap();
+                        let mut p2e = state.pid_to_exe.lock_or_recover();
                         p2e.entry(pid)
                             .or_insert_with(|| exe_path_for_pid(pid))
                             .clone()
@@ -128,7 +172,7 @@ pub fn capture_loop(state: Arc<AppState>, metrics: Arc<Metrics>) {
 
                 // Update live stats
                 {
-                    let mut w = state.window.lock().unwrap();
+                    let mut w = state.window.lock_or_recover();
                     if is_outbound {
                         w.upload_bytes += pkt_len;
                     } else {
@@ -137,7 +181,7 @@ pub fn capture_loop(state: Arc<AppState>, metrics: Arc<Metrics>) {
                 }
 
                 {
-                    let mut pb = state.process_bytes.lock().unwrap();
+                    let mut pb = state.process_bytes.lock_or_recover();
                     let entry = pb.entry(pid).or_insert((0u64, 0u64));
                     if is_outbound {
                         entry.1 += pkt_len;
@@ -153,7 +197,7 @@ pub fn capture_loop(state: Arc<AppState>, metrics: Arc<Metrics>) {
                 }
 
                 {
-                    let mut pa = state.current_process_acc.lock().unwrap();
+                    let mut pa = state.current_process_acc.lock_or_recover();
                     let acc_pa = pa.entry(exe_path.clone()).or_insert((0u64, 0u64));
                     if is_outbound {
                         acc_pa.1 += pkt_len;
@@ -163,7 +207,7 @@ pub fn capture_loop(state: Arc<AppState>, metrics: Arc<Metrics>) {
                 }
 
                 {
-                    let mut ptb = state.process_total_bytes.lock().unwrap();
+                    let mut ptb = state.process_total_bytes.lock_or_recover();
                     let tot = ptb.entry(exe_path.clone()).or_insert((0u64, 0u64));
                     if is_outbound {
                         tot.1 += pkt_len;

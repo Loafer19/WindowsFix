@@ -36,6 +36,10 @@ fn run_migrations(conn: &Connection) -> Result<(), AppError> {
             entry_json TEXT    NOT NULL,
             timestamp  INTEGER NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS settings (
+            key   TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        );
         ",
     )?;
     Ok(())
@@ -78,4 +82,37 @@ pub fn clear_history(conn: &Connection) -> Result<(), AppError> {
     conn.execute("DELETE FROM history", [])
         .map_err(AppError::from)?;
     Ok(())
+}
+
+/// Read a non-secret setting value. Secrets (API keys) never go here, see `ai_settings`.
+pub fn get_setting(conn: &Connection, key: &str) -> Result<Option<String>, AppError> {
+    let mut stmt = conn.prepare("SELECT value FROM settings WHERE key = ?1")?;
+    let mut rows = stmt.query(params![key])?;
+    match rows.next()? {
+        Some(row) => Ok(Some(row.get(0)?)),
+        None => Ok(None),
+    }
+}
+
+pub fn set_setting(conn: &Connection, key: &str, value: &str) -> Result<(), AppError> {
+    conn.execute(
+        "INSERT INTO settings (key, value) VALUES (?1, ?2)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        params![key, value],
+    )?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn settings_roundtrip() {
+        let conn = open_memory_db().expect("in-memory db");
+        assert_eq!(get_setting(&conn, "ai").unwrap(), None);
+        set_setting(&conn, "ai", "{\"a\":1}").unwrap();
+        set_setting(&conn, "ai", "{\"a\":2}").unwrap();
+        assert_eq!(get_setting(&conn, "ai").unwrap().as_deref(), Some("{\"a\":2}"));
+    }
 }
