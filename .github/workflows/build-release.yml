@@ -223,21 +223,12 @@ jobs:
         working-directory: SM
         run: bun install
 
-      - name: Create .env file for build
-        run: |
-          echo "GROK_API_KEY=${{ secrets.GROK_API_KEY }}" > SM/.env
-          echo "GROK_API_TIMEOUT=${{ secrets.GROK_API_TIMEOUT || '15' }}" >> SM/.env
-          echo "GROK_MAX_TOKENS=${{ secrets.GROK_MAX_TOKENS || '1000' }}" >> SM/.env
-
       - name: Build Services Manager
         working-directory: SM
         shell: bash
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
-          GROK_API_TIMEOUT: ${{ secrets.GROK_API_TIMEOUT || '15' }}
-          GROK_MAX_TOKENS: ${{ secrets.GROK_MAX_TOKENS || '1000' }}
         run: bun run tauri build --bundles nsis --config "$RUNNER_TEMP/tauri-ci.json"
 
       - name: Install NS frontend dependencies
