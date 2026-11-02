@@ -8,12 +8,10 @@ async function refreshServices() {
     return await invoke('refresh_services')
 }
 
+// Throws the backend AppError ({ type, message }) so the UI can react to
+// AiKeyMissing / AiAuth instead of overwriting the service info
 async function reloadServiceInfo(serviceName) {
-    try {
-        return await invoke('reload_service_info', { serviceName })
-    } catch {
-        return { error: true, message: 'Failed to reload service information' }
-    }
+    return await invoke('reload_service_info', { serviceName })
 }
 
 async function disableService(serviceName) {
@@ -68,7 +66,43 @@ async function clearHistoryAction() {
     return await invoke('clear_history')
 }
 
+async function getAiStatus() {
+    return await invoke('get_ai_status')
+}
+
+async function saveAiKey(apiKey) {
+    return await invoke('save_ai_key', { apiKey })
+}
+
+async function clearAiKey() {
+    return await invoke('clear_ai_key')
+}
+
+async function saveAiSettings(settings) {
+    return await invoke('save_ai_settings', { settings })
+}
+
+async function testAiConnection(apiKey, model) {
+    return await invoke('test_ai_connection', {
+        apiKey: apiKey || null,
+        model: model || null,
+    })
+}
+
+// Backend errors are serialized as { type, message }
+function errorMessage(err, fallback = 'Something went wrong') {
+    if (!err) return fallback
+    if (typeof err === 'string') return err
+    return err.message || fallback
+}
+
 export {
+    getAiStatus,
+    saveAiKey,
+    clearAiKey,
+    saveAiSettings,
+    testAiConnection,
+    errorMessage,
     loadServices,
     refreshServices,
     reloadServiceInfo,

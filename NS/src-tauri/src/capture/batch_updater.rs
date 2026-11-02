@@ -4,6 +4,7 @@ use std::sync::Arc;
 use crate::db;
 use crate::history::HOURLY_BUCKETS;
 use crate::models::AppState;
+use crate::sync::LockExt;
 
 /// Advance the hourly history in a background thread when an hour boundary is crossed.
 /// Persists the updated data to disk after updating in-memory history.
@@ -18,8 +19,8 @@ pub fn advance_hourly_background(
 
     // 1. Update In-Memory History
     {
-        let mut ph = state.process_hourly.lock().unwrap();
-        let mut gh = state.global_hourly.lock().unwrap();
+        let mut ph = state.process_hourly.lock_or_recover();
+        let mut gh = state.global_hourly.lock_or_recover();
 
         for h in 0..hours_elapsed {
             let is_last = h == hours_elapsed - 1;
@@ -48,24 +49,22 @@ pub fn advance_hourly_background(
     let data = db::AppData {
         global_hourly: state
             .global_hourly
-            .lock()
-            .unwrap()
+            .lock_or_recover()
             .iter()
             .copied()
             .collect(),
         saved_at_hour: new_hour,
-        process_totals: state.process_total_bytes.lock().unwrap().clone(),
-        blocked_exes: state.blocked_exes.lock().unwrap().iter().cloned().collect(),
+        process_totals: state.process_total_bytes.lock_or_recover().clone(),
+        blocked_exes: state.blocked_exes.lock_or_recover().iter().cloned().collect(),
         process_hourly: state
             .process_hourly
-            .lock()
-            .unwrap()
+            .lock_or_recover()
             .iter()
             .map(|(k, v)| (k.clone(), v.iter().copied().collect()))
             .collect(),
     };
 
-    if let Err(_e) = db::save(&data) {
-        // Disk I/O error saving hourly data
+    if let Err(e) = db::save(&data) {
+        eprintln!("Warning: failed to save hourly data: {}", e);
     }
 }

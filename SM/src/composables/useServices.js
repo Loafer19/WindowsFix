@@ -8,9 +8,12 @@ import {
     startService,
     stopService,
     disableService,
+    errorMessage,
 } from '../services/api.js'
+import { useAiSettings } from './useAiSettings.js'
 
 export function useServices() {
+    const { loadAiStatus } = useAiSettings()
     const allServices = ref([])
     const error = ref(false)
     const loading = ref(true)
@@ -43,6 +46,8 @@ export function useServices() {
 
     const reloadInfo = async (service) => {
         service.isReloading = true
+        service.aiError = ''
+        service.aiErrorType = ''
 
         try {
             const data = await reloadServiceInfo(service.name)
@@ -54,19 +59,13 @@ export function useServices() {
             if (originalService) {
                 originalService.info = data
             }
-
-            console.log(
-                `Successfully reloaded information for service: ${service.name}`,
-            )
-        } catch (error) {
-            console.error('Failed to reload service info:', error)
-            service.info = { error: true, message: 'Failed to reload information' }
-
-            const originalService = allServices.value.find(
-                (s) => s.name === service.name,
-            )
-            if (originalService) {
-                originalService.info = service.info
+        } catch (err) {
+            // Keep the existing info, just show why AI insights failed
+            console.error('Failed to reload service info:', err)
+            service.aiErrorType = err?.type || ''
+            service.aiError = errorMessage(err, 'Failed to reload information')
+            if (service.aiErrorType === 'AiKeyMissing') {
+                await loadAiStatus()
             }
         } finally {
             service.isReloading = false

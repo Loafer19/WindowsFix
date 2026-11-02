@@ -3,12 +3,22 @@
 use crate::config::constants::SAMPLE_SIZE;
 use crate::common::error::{AppError, AppResult};
 use cpal::traits::{DeviceTrait, StreamTrait};
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 /// Audio handler for capturing input from a selected device
 pub struct AudioHandler {
     pub buffer: Arc<Mutex<Vec<f32>>>,
+    /// Set by the stream error callback (e.g. device unplugged); the app then
+    /// drops this handler and asks the user to pick a device again
+    failed: Arc<AtomicBool>,
     _input_stream: cpal::Stream,
+}
+
+/// Lock the shared sample buffer, recovering from poisoning instead of
+/// panicking (a panic inside the cpal callback would kill the audio thread)
+pub fn lock_buffer(buffer: &Mutex<Vec<f32>>) -> MutexGuard<'_, Vec<f32>> {
+    buffer.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 impl AudioHandler {
@@ -38,7 +48,14 @@ impl AudioHandler {
         let stream_config = config.into();
         let buffer = Arc::new(Mutex::new(vec![0.0; SAMPLE_SIZE]));
 
-        let err_fn = |err| eprintln!("Audio error: {}", err);
+        let failed = Arc::new(AtomicBool::new(false));
+        let make_err_fn = || {
+            let failed = Arc::clone(&failed);
+            move |err: cpal::StreamError| {
+                eprintln!("Audio stream error: {}", err);
+                failed.store(true, Ordering::Relaxed);
+            }
+        };
 
         let stream = match sample_format {
             cpal::SampleFormat::F32 => {
@@ -46,10 +63,10 @@ impl AudioHandler {
                 device.build_input_stream(
                     &stream_config,
                     move |data: &[f32], _: &cpal::InputCallbackInfo| {
-                        let mut buf = buffer_clone.lock().unwrap();
+                        let mut buf = lock_buffer(&buffer_clone);
                         mix_to_mono(data, &mut buf, channels);
                     },
-                    err_fn,
+                    make_err_fn(),
                     None,
                 )
             }
@@ -58,11 +75,11 @@ impl AudioHandler {
                 device.build_input_stream(
                     &stream_config,
                     move |data: &[i16], _: &cpal::InputCallbackInfo| {
-                        let mut buf = buffer_clone.lock().unwrap();
+                        let mut buf = lock_buffer(&buffer_clone);
                         let f32_data: Vec<f32> = data.iter().map(|&s| s as f32 / 32768.0).collect();
                         mix_to_mono(&f32_data, &mut buf, channels);
                     },
-                    err_fn,
+                    make_err_fn(),
                     None,
                 )
             }
@@ -71,11 +88,11 @@ impl AudioHandler {
                 device.build_input_stream(
                     &stream_config,
                     move |data: &[u16], _: &cpal::InputCallbackInfo| {
-                        let mut buf = buffer_clone.lock().unwrap();
+                        let mut buf = lock_buffer(&buffer_clone);
                         let f32_data: Vec<f32> = data.iter().map(|&s| (s as f32 - 32768.0) / 32768.0).collect();
                         mix_to_mono(&f32_data, &mut buf, channels);
                     },
-                    err_fn,
+                    make_err_fn(),
                     None,
                 )
             }
@@ -84,11 +101,11 @@ impl AudioHandler {
                 device.build_input_stream(
                     &stream_config,
                     move |data: &[u8], _: &cpal::InputCallbackInfo| {
-                        let mut buf = buffer_clone.lock().unwrap();
+                        let mut buf = lock_buffer(&buffer_clone);
                         let f32_data: Vec<f32> = data.iter().map(|&s| (s as f32 - 128.0) / 128.0).collect();
                         mix_to_mono(&f32_data, &mut buf, channels);
                     },
-                    err_fn,
+                    make_err_fn(),
                     None,
                 )
             }
@@ -99,8 +116,14 @@ impl AudioHandler {
 
         Ok(Self {
             buffer,
+            failed,
             _input_stream: stream,
         })
+    }
+
+    /// True once the stream reported an error (device lost, driver reset, ...)
+    pub fn is_failed(&self) -> bool {
+        self.failed.load(Ordering::Relaxed)
     }
 }
 

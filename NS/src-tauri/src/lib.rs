@@ -5,6 +5,7 @@ mod history;
 mod metrics;
 mod models;
 mod settings;
+mod sync;
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
@@ -14,6 +15,7 @@ use tauri::{Listener, Manager};
 use commands::*;
 use metrics::Metrics;
 use models::AppState;
+use sync::LockExt;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -81,8 +83,12 @@ pub fn run() {
             let quit_i = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show_i, &quit_i])?;
 
-            TrayIconBuilder::new()
-                .icon(app.default_window_icon().unwrap().clone())
+            let mut tray_builder = TrayIconBuilder::new();
+            match app.default_window_icon() {
+                Some(icon) => tray_builder = tray_builder.icon(icon.clone()),
+                None => eprintln!("Warning: no default window icon, tray icon will be empty"),
+            }
+            tray_builder
                 .tooltip("NetSentry")
                 .menu(&menu)
                 .on_menu_event(|app, event| match event.id.as_ref() {
@@ -130,7 +136,7 @@ pub fn run() {
 
              // Hide main window on startup if "Start minimized" is configured
             let state = app.state::<Arc<AppState>>();
-            if state.settings.lock().unwrap().start_minimized {
+            if state.settings.lock_or_recover().start_minimized {
                 if let Some(window) = app.get_webview_window("main") {
                     let _ = window.hide();
                 }

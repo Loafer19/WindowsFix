@@ -32,7 +32,7 @@ windows = { version = "0.58", features = [
   "Win32_System_SystemServices",
   "Win32_System_Registry",
 ] }
-dotenvy = "0.15"
+keyring = { version = "3.6", features = ["windows-native"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
 chrono = { version = "0.4", features = ["serde"] }
 

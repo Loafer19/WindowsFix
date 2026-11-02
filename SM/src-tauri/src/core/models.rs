@@ -15,6 +15,12 @@ pub enum AppError {
     Validation { message: String },
     Io { message: String },
     TaskPanic { message: String },
+    /// No xAI API key is configured (neither in Credential Manager nor in the environment)
+    AiKeyMissing { message: String },
+    /// The xAI API rejected the key (401/403)
+    AiAuth { message: String },
+    /// Any other failure talking to the xAI API (network, timeout, bad model, rate limit)
+    AiRequest { message: String },
     Unknown { message: String },
 }
 
@@ -27,6 +33,9 @@ impl std::fmt::Display for AppError {
             AppError::Validation { message } => write!(f, "Validation error: {}", message),
             AppError::Io { message } => write!(f, "I/O error: {}", message),
             AppError::TaskPanic { message } => write!(f, "Task panic: {}", message),
+            AppError::AiKeyMissing { message } => write!(f, "AI key missing: {}", message),
+            AppError::AiAuth { message } => write!(f, "AI authentication error: {}", message),
+            AppError::AiRequest { message } => write!(f, "AI request error: {}", message),
             AppError::Unknown { message } => write!(f, "Unknown error: {}", message),
         }
     }

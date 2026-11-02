@@ -16,22 +16,22 @@ use std::sync::Arc;
 use crate::db;
 use crate::history;
 use crate::models::AppState;
+use crate::sync::LockExt;
 
 /// Persist the full application state to disk.
 /// Called after blocking/unblocking changes so they survive restarts.
 pub fn persist_app_data(state: &Arc<AppState>) -> Result<(), String> {
     let global_hourly: Vec<(u64, u64)> =
-        state.global_hourly.lock().unwrap().iter().copied().collect();
+        state.global_hourly.lock_or_recover().iter().copied().collect();
     let process_hourly: HashMap<String, Vec<(u64, u64)>> = state
         .process_hourly
-        .lock()
-        .unwrap()
+        .lock_or_recover()
         .iter()
         .map(|(k, v)| (k.clone(), v.iter().copied().collect()))
         .collect();
-    let process_totals = state.process_total_bytes.lock().unwrap().clone();
+    let process_totals = state.process_total_bytes.lock_or_recover().clone();
     let blocked_exes: Vec<String> =
-        state.blocked_exes.lock().unwrap().iter().cloned().collect();
+        state.blocked_exes.lock_or_recover().iter().cloned().collect();
 
     db::save(&db::AppData {
         global_hourly,
