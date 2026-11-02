@@ -4,6 +4,7 @@ use crate::config::settings::{BeatSensitivity, ColorScheme};
 
 impl App {
     pub fn init_gpu(&mut self, window: Arc<Window>) {
+        // No usable GPU/surface means nothing can be rendered at all; failing fast with a clear message is intended
         let gpu = pollster::block_on(GpuResources::new(window)).expect("Failed to initialize GPU");
         self.state.gpu = Some(gpu);
     }
@@ -64,6 +65,14 @@ impl App {
             }
         }
 
+        // Audio device lost (unplugged, driver reset): drop the dead stream and
+        // let the user pick a device again instead of rendering a frozen buffer
+        if self.state.audio.as_ref().is_some_and(|a| a.is_failed()) {
+            eprintln!("Audio device lost, showing device selection");
+            self.state.audio = None;
+            self.state.show_device_selection = true;
+        }
+
         if let Some(index) = self.state.pending_device_index.take() {
             if let Err(e) = self.init_audio(index) {
                 eprintln!("Failed to initialize audio: {:?}", e);
@@ -110,7 +119,7 @@ impl App {
             self.state.uniforms.color = self.state.settings.scheme_color();
 
             if let Some(audio) = &self.state.audio {
-                let audio_guard = audio.buffer.lock().unwrap();
+                let audio_guard = crate::input::audio::lock_buffer(&audio.buffer);
                 let beat_threshold = match self.state.settings.beat_sensitivity {
                     BeatSensitivity::Low    => BEAT_THRESHOLD_HIGH,
                     BeatSensitivity::Medium => BEAT_THRESHOLD_MED,

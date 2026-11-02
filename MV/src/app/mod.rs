@@ -50,7 +50,14 @@ impl ApplicationHandler for App {
         let window_attributes = Window::default_attributes()
             .with_title(WINDOW_TITLE)
             .with_inner_size(winit::dpi::PhysicalSize::new(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT));
-        let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
+        let window = match event_loop.create_window(window_attributes) {
+            Ok(w) => Arc::new(w),
+            Err(e) => {
+                eprintln!("Failed to create window: {}", e);
+                event_loop.exit();
+                return;
+            }
+        };
 
         // Set the icon after window creation
         let icon = {
@@ -170,7 +177,9 @@ impl ApplicationHandler for App {
                     eprintln!("Render error: {:?}", e);
                     match e {
                         crate::common::error::AppError::Surface(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
-                            self.resize(self.state.window.as_ref().unwrap().inner_size());
+                            if let Some(size) = self.state.window.as_ref().map(|w| w.inner_size()) {
+                                self.resize(size);
+                            }
                         }
                         crate::common::error::AppError::Surface(wgpu::SurfaceError::OutOfMemory) => event_loop.exit(),
                         _ => {}
